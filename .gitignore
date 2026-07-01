@@ -1,0 +1,26 @@
+# deps
+node_modules/
+
+# secrets — NEVER commit credentials
+.env
+.env.*
+!.env.example
+
+# playwright auth / session state (contains login cookies)
+.auth/
+storageState.json
+
+# run artifacts (may contain personal data)
+snapshots/
+screenshots/
+*.png
+*.jpg
+traces/
+*.zip
+
+# temp downloads
+.tmp/
+
+# misc
+.DS_Store
+*.log

@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="/favicon.ico" />
+<title>타임인아웃 파일럿</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<style>
+  :root { --blue:#5b6ef5; --accent:#6366f1; --accent2:#8b5cf6; --red:#e0503b; --ink:#16192e; --muted:#7b8299;
+    --grad:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%); }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif; color:var(--ink);
+    background:radial-gradient(1100px 620px at 50% -8%, #e7ebfc 0%, #eef1f9 45%, #f5f6fb 100%);
+    display:flex; flex-direction:column; min-height:100vh; }
+  header { padding:16px 30px; background:rgba(255,255,255,.72); backdrop-filter:blur(8px); border-bottom:1px solid #e6e9f5;
+    display:flex; align-items:center; gap:13px; flex:0 0 auto; }
+  header h1 { font-size:17px; margin:0; letter-spacing:-.3px; } header .tag { font-size:12px; color:var(--muted); }
+  main { flex:1 1 auto; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .controls { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:18px; }
+  .controls label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input { padding:11px 13px; border:1px solid #d9dcec; border-radius:10px; font-size:14px; color:var(--ink); background:#fff; transition:.15s; }
+  input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(99,102,241,.16); }
+  button { padding:10px 18px; background:var(--blue); color:#fff; border:0; border-radius:9px; font-size:14px; cursor:pointer; font-weight:600; transition:.15s; }
+  button:disabled { opacity:.5; cursor:default; }
+  .card { background:#fff; border:1px solid #eaedf6; border-radius:16px; padding:22px 24px; margin-bottom:16px; box-shadow:0 8px 22px -14px rgba(60,58,140,.2); }
+  .kpis { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  .kpi { flex:1; min-width:170px; background:#fff; border:1px solid #eaedf6; border-radius:16px; padding:17px 19px; box-shadow:0 8px 22px -14px rgba(60,58,140,.2); }
+  .kpi .l { font-size:12px; color:var(--muted); } .kpi .v { font-size:25px; font-weight:800; letter-spacing:-.5px; margin-top:5px; }
+  .ok { color:#12a150; } .bad { color:var(--red); }
+  #status { color:var(--muted); font-size:14px; padding:8px 0; }
+  h2 { font-size:16px; margin:0 0 14px; }
+  input[type=password], input[type=text], #name, #month { min-width:150px; }
+
+  /* 스냅샷 플레이어 — 가상 사파리 */
+  .browser { width:min(1120px,94vw); margin:0; background:#fff; border:1px solid #dde1ef; border-radius:16px; overflow:hidden;
+    box-shadow:0 30px 80px -24px rgba(60,58,140,.42), 0 8px 24px -12px rgba(60,58,140,.2); }
+  .chrome { display:flex; align-items:center; gap:12px; padding:11px 15px;
+    background:linear-gradient(#f7f8fc,#eceef6); border-bottom:1px solid #e2e5f0; }
+  .lights { display:flex; gap:7px; }
+  .lights i { width:12px; height:12px; border-radius:50%; display:block; }
+  .lights .r{background:#ff5f57;} .lights .y{background:#febc2e;} .lights .g{background:#28c840;}
+  .urlbar { flex:1; background:#fff; border:1px solid #e2e5ee; border-radius:9px; padding:6px 12px;
+    font-size:12.5px; color:#55607a; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .reload { background:#fff; border:1px solid #e2e5ee; color:#6b7385; width:auto; padding:6px 12px; font-size:12.5px; font-weight:600; border-radius:9px; }
+  .reload:hover { color:var(--accent); border-color:var(--accent); }
+  /* 상단 로딩바 (브라우저 진행바) — 작업 중 계속 흐름 */
+  .loadbar { height:3px; background:#eef1f9; overflow:hidden; position:relative; display:none; }
+  .browser.loading .loadbar { display:block; }
+  .loadbar::before { content:''; position:absolute; top:0; height:100%; width:38%; border-radius:3px;
+    background:linear-gradient(90deg, transparent, var(--accent), var(--accent2)); animation:load 1.05s infinite ease-in-out; }
+  @keyframes load { 0%{left:-40%} 100%{left:105%} }
+  .mini-spin { display:none; width:13px; height:13px; border:2px solid rgba(255,255,255,.22); border-top-color:#8fa2ff; border-radius:50%; animation:spin .7s linear infinite; }
+  .browser.loading .mini-spin { display:inline-block; }
+  .viewport { position:relative; height:700px; overflow-y:auto; overflow-x:hidden; background:#fff; }
+  .viewport img { width:100%; height:auto; display:block; }
+  .scrim { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:16px; background:rgba(244,246,251,.97); color:#465; font-size:14px; }
+  .spinner { width:36px; height:36px; border:3px solid #d3d9e8; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .playbar { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#0f1626; color:#cfd6e6; }
+  .playbar .cap { font-size:13px; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .playbar .nav { background:rgba(255,255,255,.1); color:#e5e9f2; width:28px; height:28px; border-radius:8px; font-size:16px; line-height:1; padding:0; }
+  .playbar .nav:disabled { opacity:.3; cursor:default; }
+  .dots { display:flex; gap:6px; }
+  .dots i { width:8px; height:8px; border-radius:50%; background:#3a4763; display:block; transition:.25s; cursor:pointer; }
+  .dots i.on { background:#4d8bff; transform:scale(1.35); }
+  .dots i.done { background:#2a9d5c; }
+  .browser.fade { opacity:0; transform:translateY(-8px) scale(.99); transition:.5s ease; }
+  /* 결과 페이지: 고정 뷰포트 안에서 스크롤 */
+  .browser.result .viewport { overflow-y:auto; }
+  #dash { padding:22px 24px 20px; background:#f4f6fb; min-height:100%; animation:rise .45s ease; }
+  #dash .card, #dash .kpis { animation:none; }
+  @keyframes rise { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+
+  /* 브라우저 안 로그인 화면 */
+  .page-login { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(1200px 500px at 50% -10%, #eef2fb, #f7f8fc); }
+  .lp { width:min(430px,88%); background:#fff; border:1px solid #eaedf6; border-radius:18px;
+    padding:34px 32px 30px; box-shadow:0 20px 48px -16px rgba(60,58,140,.22); }
+  .lp .brand { font-size:21px; font-weight:800; letter-spacing:-.4px; margin-bottom:3px; }
+  .lp .brand span { font-size:12px; font-weight:500; color:var(--muted); letter-spacing:0; }
+  .lp .sub { font-size:12.5px; line-height:1.55; color:var(--muted); margin-bottom:22px; }
+  .lp label { display:block; font-size:12px; font-weight:500; color:var(--muted); margin:14px 0 6px; }
+  .lp label .opt { color:#aab1bf; }
+  .lp input { width:100%; }
+  #go { width:100%; margin-top:24px; padding:13px; font-size:15px; font-weight:700; letter-spacing:-.2px;
+    background:var(--grad); box-shadow:0 10px 22px -8px rgba(99,102,241,.6); }
+  #go:hover:not(:disabled) { filter:brightness(1.05); transform:translateY(-1px); }
+  .pw-wrap { position:relative; }
+  .pw-wrap input { padding-right:46px; }
+  .pw-toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:transparent; color:#8a93a6; font-size:15px; padding:6px 8px; }
+  .pw-toggle:hover { color:var(--blue); }
+  .lp .row { display:flex; gap:10px; } .lp .row > div { flex:1; }
+  .lp #status { text-align:center; }
+  .segmented { display:flex; background:#eef1f8; border-radius:10px; padding:4px; margin:16px 0 6px; }
+  .segmented .seg { flex:1; background:transparent; color:#6b7385; font-weight:600; font-size:13px; padding:8px; border-radius:7px; }
+  .segmented .seg.on { background:#fff; color:var(--blue); box-shadow:0 1px 3px rgba(30,40,80,.1); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛫 webpilot</h1><span class="tag">타임인아웃 근태 자동 조종석 · 로그인→수집→분석을 브라우저가 대신</span>
+</header>
+<main>
+  <!-- 가상 사파리: 로그인 → 스냅샷 재생 모두 이 안에서 -->
+  <div class="browser" id="player">
+    <div class="chrome">
+      <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+      <div class="urlbar" id="p-url">com.timeinout.kr</div>
+      <button type="button" class="reload" id="p-reload" title="다시하기">↻ 다시하기</button>
+    </div>
+    <div class="loadbar"></div>
+    <div class="viewport">
+      <!-- 초기: 브라우저 안 로그인 화면 -->
+      <div class="page-login" id="p-login">
+        <div class="lp">
+          <div class="brand">🛫 webpilot <span>· 타임인아웃 근태 조종석</span></div>
+          <div class="sub">로그인하면 <b>타임인아웃</b>에 브라우저가 대신 접속해 내 근태를 수집·분석합니다.</div>
+          <label>아이디 (이메일)</label>
+          <input id="tid" type="text" placeholder="name@company.com" autocomplete="username" />
+          <label>비밀번호</label>
+          <div class="pw-wrap">
+            <input id="tpw" type="password" placeholder="비밀번호" autocomplete="current-password" />
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="비밀번호 표시">👁</button>
+          </div>
+          <label>월</label>
+          <input id="month" type="month" value="2026-06" style="width:100%" />
+          <button id="go">로그인하고 자동 분석 ▶</button>
+          <div id="status"></div>
+        </div>
+      </div>
+      <!-- 스냅샷 프레임 -->
+      <img id="p-frame" alt="" style="display:none" />
+      <!-- 로딩 -->
+      <div class="scrim" id="p-scrim" style="display:none"><div class="spinner"></div><div id="p-loading">타임인아웃 접속 중…</div></div>
+      <!-- 결과 대시보드: 브라우저 안 '결과 페이지' -->
+      <div id="dash" style="display:none">
+    <div class="controls" style="margin:-2px 0 14px">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;color:var(--ink);margin:0">
+        <input type="checkbox" id="excludeCorrected" checked style="width:auto;margin:0" /> 정정한 날은 초과근무 합계에서 제외
+      </label>
+      <span id="corr-note" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
+    <div class="kpis" id="kpis">
+      <div class="kpi"><div class="l">총 근로시간 (찐)</div><div class="v" id="k-total">-</div><div class="l" id="k-total-sub"></div></div>
+      <div class="kpi"><div class="l">초과근무 합계 (평일 8h 초과)</div><div class="v" id="k-ot">-</div><div class="l" id="k-limit"></div></div>
+      <div class="kpi"><div class="l">휴일 근무 시간 (예외)</div><div class="v" id="k-hol">-</div><div class="l" id="k-hol-sub"></div></div>
+    </div>
+
+    <div class="card" id="clockCard">
+      <h2>출퇴근 시각 분포</h2>
+      <canvas id="clock" height="120"></canvas>
+      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">
+        평일: <b style="color:#3b6fe0">근무 4h</b> → <b>점심 1h</b> → <b style="color:#3b6fe0">근무 4h</b> → <b>저녁 30m</b> → <b style="color:#e0503b">나머지=야근</b> ·
+        <b style="color:#8b5cf6">휴일근무=보라</b> · <b style="color:#22c55e">휴가=초록</b> · <b style="color:#06b6d4">정정=청록</b> · <b style="color:#aab1bf">기록누락=회색</b> · 막대는 <b>찐 퇴근</b> · 24h 위=<b>익일 퇴근</b>
+      </p>
+    </div>
+      </div><!-- #dash -->
+    </div><!-- viewport -->
+    <div class="playbar">
+      <button type="button" class="nav" id="p-prev" disabled>‹</button>
+      <span class="mini-spin"></span>
+      <div class="cap" id="p-cap">로그인 대기 중</div>
+      <div class="dots" id="p-dots"></div>
+      <button type="button" class="nav" id="p-next" disabled>›</button>
+    </div>
+  </div><!-- browser -->
+</main>
+
+<script>
+let clock, lastData = null;
+const $ = (id) => document.getElementById(id);
+const hhmm = (dec) => { if (dec == null) return ''; const over = dec >= 24; const d = over ? dec - 24 : dec; const h = Math.floor(d); const m = Math.round((d - h) * 60); return `${over ? '익일 ' : ''}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
+const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2,'0')}분`;
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function load() {
+  const id = $('tid').value.trim();
+  const pw = $('tpw').value;
+  const month = $('month').value;
+  if (!id || !pw) { $('status').textContent = '⚠ 아이디와 비밀번호를 입력하세요.'; return; }
+  $('go').disabled = true; $('status').textContent = '';
+
+  // 상태 초기화 → 로딩
+  slides = []; curData = null; curIdx = 0; dashRendered = false; hasResult = false;
+  $('dash').style.display = 'none';
+  $('player').style.display = 'block';
+  $('player').classList.remove('fade', 'result');
+  $('player').classList.add('loading');
+  $('p-login').style.display = 'none';
+  $('p-frame').style.display = 'none';
+  $('p-frame').removeAttribute('src');
+  $('p-scrim').style.display = 'flex';
+  $('p-url').textContent = 'https://user.timeinout.kr';
+  $('p-cap').textContent = '자동화 진행 중 (단계별 실시간 표시)';
+  $('p-dots').innerHTML = '';
+  $('p-prev').disabled = true; $('p-next').disabled = true;
+  $('p-loading').textContent = '타임인아웃 로그인 중…';
+
+  try {
+    const r = await fetch('/api/overtime/stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'employee', id, pw, month }),
+    });
+    if (!r.ok || !r.body) throw new Error('연결 실패');
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const msg = JSON.parse(line);
+        if (msg.type === 'snap') onSnap(msg.snap);           // 캡처 즉시 표시
+        else if (msg.type === 'result') onResult(msg.data);  // 결과 페이지
+        else if (msg.type === 'error') throw new Error(msg.error);
+      }
+    }
+  } catch (e) {
+    $('p-scrim').style.display = 'flex';
+    $('p-frame').style.display = 'none';
+    $('p-loading').textContent = '❌ ' + e.message;
+    $('status').textContent = '❌ ' + e.message;
+  } finally {
+    $('go').disabled = false;
+    $('player').classList.remove('loading');
+  }
+}
+
+// 스냅샷을 사파리 프레임에서 착착 재생 → 마지막에 페이드아웃
+// 슬라이드 = [스냅샷 0..N-1] + [결과 페이지]. 스냅샷은 스트리밍으로 실시간 추가.
+let slides = [], curData = null, curIdx = 0, dashRendered = false, hasResult = false;
+const totalSlides = () => slides.length + (hasResult ? 1 : 0);
+function rebuildDots() { $('p-dots').innerHTML = Array.from({ length: totalSlides() }, () => '<i></i>').join(''); }
+
+function goToSlide(i) {
+  const total = totalSlides();
+  if (!total) return;
+  i = Math.max(0, Math.min(total - 1, i));
+  curIdx = i;
+  const vp = document.querySelector('.viewport'); if (vp) vp.scrollTop = 0; // 슬라이드 전환 시 상단부터
+  const isResult = hasResult && i === slides.length;
+  const dots = [...$('p-dots').querySelectorAll('i')];
+  dots.forEach((d, j) => { d.classList.toggle('on', j === i); d.classList.toggle('done', j < i); });
+  $('p-prev').disabled = i === 0;
+  $('p-next').disabled = i === total - 1;
+  $('p-scrim').style.display = 'none';
+  if (isResult) {
+    $('p-frame').style.display = 'none';
+    $('player').classList.add('result');
+    $('dash').style.display = 'block';
+    if (!dashRendered && curData) { render(curData); dashRendered = true; }
+    $('p-url').textContent = `webpilot · ${curData ? curData.name || '본인' : ''} · ${curData ? curData.month : ''} 근태 리포트`;
+    $('p-cap').textContent = '✓ 근태 리포트';
+  } else {
+    const s = slides[i]; if (!s) return;
+    $('dash').style.display = 'none';
+    $('player').classList.remove('result');
+    $('p-frame').style.display = 'block';
+    $('p-frame').src = s.img;
+    $('p-url').textContent = s.url;
+    $('p-cap').textContent = `${i + 1}. ${s.label}${hasResult ? '' : ' …'}`;
+  }
+}
+
+// 스냅샷이 캡처될 때마다 즉시 추가·표시
+function onSnap(s) {
+  slides.push(s);
+  rebuildDots();
+  goToSlide(slides.length - 1);
+}
+// 분석 결과 도착 → 결과 슬라이드 추가하고 이동
+function onResult(d) {
+  curData = d; hasResult = true;
+  $('player').classList.remove('loading');
+  rebuildDots();
+  goToSlide(slides.length);
+}
+
+function render(d) {
+  lastData = d;
+  const s = d.summary;
+  $('kpis').style.display = 'flex';
+  $('clockCard').style.display = 'block';
+
+  // 합계 규칙: 누락/의심일은 전부 제외(회색), 정정일은 토글 ON이면 제외(청록)
+  // → 각 KPI가 그래프에 보이는 색 영역의 합과 정확히 일치
+  const exclude = $('excludeCorrected').checked;
+  const missDays = d.days.filter(x => x.missing);
+  let total = 0, ot = 0, hol = 0; const corrDays = [];
+  for (const x of d.days) {
+    if (x.missing) continue;                                     // 누락/의심 → 모든 합계 제외
+    if (x.corrected) { corrDays.push(x); if (exclude) continue; } // 정정 제외 ON → 합계 제외
+    total += x.workMin;
+    hol += x.holMin;
+    ot += x.otMin;
+  }
+  const over52 = ot > 52 * 60;
+  $('k-total').textContent = fmtMin(total);
+  $('k-total-sub').textContent = `raw ${s.rawTotalText} · 누락/의심 ${missDays.length}일 제외`;
+  $('k-ot').textContent = fmtMin(ot);
+  const lim = $('k-limit');
+  lim.textContent = over52 ? `🔴 월 52h 초과 (${(ot/60).toFixed(1)}h)` : `✅ 52h 이내 (${(ot/60).toFixed(1)}h)`;
+  lim.className = 'l ' + (over52 ? 'bad' : 'ok');
+  $('k-hol').textContent = fmtMin(hol);
+  $('k-hol-sub').textContent = '휴일·대체공휴일 근무 (초과 합계와 별도 집계)';
+  $('corr-note').textContent = [
+    corrDays.length ? `정정 ${corrDays.length}일 [${corrDays.map(x => `${x.day}일 ${x.correctReason}`).join(', ')}] ${exclude ? '→ 초과합계 제외' : '→ 포함'}` : '정정 없음',
+    missDays.length ? `· 기록누락 ${missDays.length}일 [${missDays.map(x => `${x.day}일`).join(', ')}]` : '',
+  ].filter(Boolean).join('  ');
+
+  const labels = d.days.map(x => [String(x.day).padStart(2,'0'), x.dow]);
+  const status = d.days.map(x => x.status);
+  const corr = d.days.map(x => x.corrected ? x.correctReason : '');
+  const corrDay = d.days.map(x => x.corrected);
+  const miss = d.days.map(x => x.missing);
+  const isLv = d.days.map(x => x.isLeave);
+  const lvTxt = d.days.map(x => x.isLeave ? `${x.leaveType}${x.leaveDetail ? ' ' + x.leaveDetail : ''}` : '');
+
+  // 출퇴근 시각 분포 — 평일은 [4h근무][1h점심][4h근무][30m저녁][야근], 휴일근무는 통째로 보라
+  const seg = (inH, outH) => {
+    if (inH == null || outH == null) return { base:0, am:0, lunch:0, pm:0, dinner:0, ot:0, hol:0, leave:0 };
+    let sp = outH - inH;
+    const am = Math.min(sp, 4); sp -= am;
+    const lunch = Math.min(sp, 1); sp -= lunch;
+    const pm = Math.min(sp, 4); sp -= pm;
+    const dinner = Math.min(sp, 0.5); sp -= dinner;
+    return { base:inH, am, lunch, pm, dinner, ot:Math.max(0, sp), hol:0, leave:0, corr:0, miss:0 };
+  };
+  const empty = { base:0, am:0, lunch:0, pm:0, dinner:0, ot:0, hol:0, leave:0, corr:0, miss:0 };
+  const S = d.days.map(x => {
+    // 정정된 날: 제외 토글 ON이면 청록 통짜(합계 제외), OFF면 아래 일반 근무로 취급(합계 포함)
+    if (x.corrected && x.inH != null && exclude) return { ...empty, base:x.inH, corr:x.outH - x.inH };
+    // 기록 누락(펀치없음·한쪽만·이상치·결근) → 회색. 반차/반반차면 휴가 초록 + 누락 회색으로 09~18
+    if (x.missing) {
+      if (x.isLeave && x.leaveDays < 1) {
+        const lh = Math.max(1, x.leaveHours || 2);
+        return { ...empty, base:9, leave:lh, miss:Math.max(0, 9 - lh) };
+      }
+      return { ...empty, base:9, miss:9 };
+    }
+    // 휴가 종일: 09~18 초록 블록
+    if (x.isLeave && x.workMin === 0 && !x.holiday) {
+      const h = x.leaveDays >= 1 ? 9 : Math.max(1, x.leaveHours || 4);
+      return { ...empty, base:9, leave:h };
+    }
+    // 휴일·대체공휴일 근무는 출근~퇴근 전체를 보라 단독 막대로
+    if (x.holiday && x.holMin > 0 && x.inH != null)
+      return { ...empty, base:x.inH, hol:x.outH - x.inH };
+    if (x.holiday) return empty;
+    return seg(x.inH, x.outH);
+  });
+  const inT = d.days.map(x => x.inText), outT = d.days.map(x => x.outText);
+  const sus = d.days.map(x => x.suspect);
+  const yMax = Math.max(24, Math.ceil(Math.max(...d.days.map(x => x.outH || 0)) + 1));
+  const T = 'rgba(0,0,0,0)';
+  if (clock) clock.destroy();
+  clock = new Chart($('clock'), {
+    type:'bar',
+    data:{ labels, datasets:[
+      { label:'_base', data:S.map(s=>s.base), backgroundColor:T, stack:'t' },
+      { label:'근무', data:S.map(s=>s.am), backgroundColor:'#3b6fe0', stack:'t' },
+      { label:'점심(1h)', data:S.map(s=>s.lunch), backgroundColor:'#c9d2e4', stack:'t' },
+      { label:'_근무2', data:S.map(s=>s.pm), backgroundColor:'#3b6fe0', stack:'t' },
+      { label:'저녁(30m)', data:S.map(s=>s.dinner), backgroundColor:'#f0c48a', stack:'t' },
+      { label:'야근', data:S.map(s=>s.ot), backgroundColor:'#e0503b', stack:'t' },
+      { label:'휴일근무', data:S.map(s=>s.hol), backgroundColor:'#8b5cf6', stack:'t' },
+      { label:'휴가', data:S.map(s=>s.leave), backgroundColor:'#22c55e', stack:'t' },
+      { label:'정정', data:S.map(s=>s.corr), backgroundColor:'#06b6d4', stack:'t' },
+      { label:'기록누락', data:S.map(s=>s.miss), backgroundColor:'#c3c9d4', stack:'t' },
+    ]},
+    options:{ animation:false,
+      scales:{ x:{ stacked:true }, y:{ stacked:true, min:6, max:yMax, title:{display:true,text:'시각 (24h 위=익일)'},
+        ticks:{ stepSize:2, callback:(v)=> v>=24 ? '익일 '+hhmm(v-24) : hhmm(v) } } },
+      plugins:{
+        legend:{ position:'top', labels:{ filter:(it)=> !it.text.startsWith('_') } },
+        annotation:{ annotations:{
+          l9:{ type:'line', yMin:9, yMax:9, borderColor:'#c4cbda', borderWidth:1, borderDash:[5,4] },
+          l18:{ type:'line', yMin:18, yMax:18, borderColor:'#c4cbda', borderWidth:1, borderDash:[5,4] },
+          l24:{ type:'line', yMin:24, yMax:24, borderColor:'#e0503b', borderWidth:1.2 },
+        } },
+        tooltip:{ filter:(i)=> !i.dataset.label.startsWith('_') && i.raw > 0,
+          callbacks:{
+            title:(i)=>{ const k = i[0].dataIndex;
+              if (corrDay[k]) return `정정 · ${corr[k]}`;
+              if (miss[k]) return status[k] || '기록 누락';
+              if (isLv[k]) return `휴가 · ${lvTxt[k]}`;
+              return `${inT[k]} ~ ${outT[k]}`; },
+            label:(i)=>{ const L = i.dataset.label;
+              if (L === '휴가') return lvTxt[i.dataIndex];
+              if (L === '정정') return `정정됨: ${inT[i.dataIndex]}~${outT[i.dataIndex]}`;
+              if (L === '기록누락') return sus[i.dataIndex] ? '펀치 이상(미체크아웃 의심)' : '펀치 기록 없음/불완전';
+              return `${L}: ${Math.round(i.raw*60)}분`; },
+            afterBody:(i)=> (miss[i[0].dataIndex] && isLv[i[0].dataIndex]) ? '반차 외 근무기록 누락' : '',
+          } },
+      },
+    },
+  });
+}
+
+$('go').addEventListener('click', load);
+$('excludeCorrected').addEventListener('change', () => { if (lastData) render(lastData); });
+for (const id of ['tid', 'tpw']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
+$('pwToggle').addEventListener('click', () => {
+  const el = $('tpw'); el.type = el.type === 'password' ? 'text' : 'password';
+  $('pwToggle').textContent = el.type === 'password' ? '👁' : '🙈';
+});
+// 스냅샷 앞뒤 탐색 (끝(결과)에서도 이전 프레임으로)
+$('p-prev').addEventListener('click', () => goToSlide(curIdx - 1));
+$('p-next').addEventListener('click', () => goToSlide(curIdx + 1));
+$('p-dots').addEventListener('click', (e) => { const idx = [...$('p-dots').querySelectorAll('i')].indexOf(e.target); if (idx >= 0) goToSlide(idx); });
+// 다시하기 → 로그인 화면으로 (아이디/비번/월 유지, 다시 조회 가능)
+$('p-reload').addEventListener('click', () => {
+  slides = []; curData = null; curIdx = 0; dashRendered = false; hasResult = false;
+  $('player').classList.remove('result', 'fade', 'loading');
+  $('dash').style.display = 'none';
+  $('p-frame').style.display = 'none'; $('p-frame').removeAttribute('src');
+  $('p-scrim').style.display = 'none';
+  $('p-login').style.display = 'flex';
+  $('p-url').textContent = 'com.timeinout.kr';
+  $('p-cap').textContent = '로그인 대기 중';
+  $('p-dots').innerHTML = '';
+  $('p-prev').disabled = true; $('p-next').disabled = true;
+  $('status').textContent = '';
+});
+
+// 로컬 .env 값으로 프리필 (편의)
+(async () => {
+  try {
+    const d = await (await fetch('/api/defaults')).json();
+    if (d.id && !$('tid').value) $('tid').value = d.id;
+    if (d.pw && !$('tpw').value) $('tpw').value = d.pw;
+  } catch {}
+})();
+</script>
+</body>
+</html>
