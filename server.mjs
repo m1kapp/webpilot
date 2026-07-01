@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
-import { getOvertime, getOvertimeEmployee } from './src/lib/timeinout.mjs';
+import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
 
 const app = express();
 const PORT = process.env.PORT || 8181;
@@ -60,3 +60,5 @@ app.get('/api/defaults', (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`\n✅ webpilot 실행: http://localhost:${PORT}\n`));
+
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await closeBrowser(); process.exit(0); });

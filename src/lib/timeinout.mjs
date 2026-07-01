@@ -28,6 +28,15 @@ function monthRange(month) {
   return { y, m, last, sdate: `${y}-${p(m)}-01`, edate: `${y}-${p(m)}-${p(last)}` };
 }
 
+// 크롬 인스턴스 재사용 (요청마다 launch 안 함 → 매번 1~2초 절약)
+let _browser = null;
+async function getBrowser() {
+  if (_browser && _browser.isConnected()) return _browser;
+  _browser = await chromium.launch({ headless: true });
+  return _browser;
+}
+export async function closeBrowser() { if (_browser) { await _browser.close().catch(() => {}); _browser = null; } }
+
 async function isLoggedIn(context) {
   const page = await context.newPage();
   await page.goto(`${HOST}/`, { waitUntil: 'domcontentloaded' }).catch(() => {});
@@ -410,16 +419,15 @@ export async function getOvertimeEmployee({ month, id, pw, onSnapshot }) {
   const creds = { id: id || process.env.TIMEINOUT_ID, pw: pw || process.env.TIMEINOUT_PW };
   const snapshots = [];
   if (onSnapshot) snapshots.onSnap = onSnapshot; // 캡처 즉시 전송
-  const browser = await chromium.launch({ headless: true });
+  const browser = await getBrowser();
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
     await loginUser(ctx, creds, snapshots);
     const cards = await fetchEmployeeCards(ctx, month, snapshots);
     const leaves = await fetchEmployeeLeaves(ctx, month, snapshots);
-    await ctx.close();
     return { name: '본인', mode: 'employee', leaves, snapshots, ...analyzeEmployee(cards, month, leaves) };
   } finally {
-    await browser.close();
+    await ctx.close().catch(() => {}); // 컨텍스트만 닫고 브라우저는 재사용
   }
 }
 
@@ -428,10 +436,11 @@ export async function getOvertime({ month, name, id, pw }) {
   const freshLogin = !!(id && pw); // UI로 자격증명을 주면 항상 새로 로그인(스냅샷 연출)
   const { sdate, edate } = monthRange(month);
   const snapshots = [];
-  const browser = await chromium.launch({ headless: true });
+  const browser = await getBrowser();
+  let main = null;
   try {
     // 1) 로그인/세션 확보 + 출퇴근 원본 다운로드
-    const main = await browser.newContext({
+    main = await browser.newContext({
       storageState: (!freshLogin && existsSync(AUTH)) ? AUTH : undefined,
       viewport: { width: 1400, height: 900 }, acceptDownloads: true,
     });
@@ -440,7 +449,7 @@ export async function getOvertime({ month, name, id, pw }) {
     // 이름 비우면 로그인한 본인으로 자동 지정
     const who = (name && name.trim()) ? name.trim() : (detectedName || process.env.TIMEINOUT_NAME || '유민호');
     const xlsxPath = await downloadInOut(main, { sdate, edate, name: who }, snapshots);
-    await main.close();
+    await main.close(); main = null;
 
     // 2) 정정·휴가는 각각 독립 컨텍스트로 (ASP.NET 세션 검색조건 오염 방지)
     const retry = async (fn) => (await fn()) ?? (await fn()) ?? {};
@@ -452,6 +461,6 @@ export async function getOvertime({ month, name, id, pw }) {
     const leaves = await inFreshCtx((ctx) => fetchLeaves(ctx, { sdate, edate, name: who }, snapshots));
     return { name: who, corrections, leaves, snapshots, ...analyze(xlsxPath, month, corrections, leaves) };
   } finally {
-    await browser.close();
+    if (main) await main.close().catch(() => {}); // 컨텍스트만 닫고 브라우저는 재사용
   }
 }
