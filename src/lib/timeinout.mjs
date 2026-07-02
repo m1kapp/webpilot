@@ -1,10 +1,11 @@
 // 타임인아웃 레시피 코어: 로그인 → 출퇴근 현황(/InOutMng, 찐 출퇴근) 다운로드 → 초과근무 분석
 // 핵심: 회사 "근로인정시간"(정량 12시간 상한)이 아니라 실제 펀치(출근~퇴근)로 계산
-import { chromium } from 'playwright';
 import xlsx from 'xlsx';
 import { mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getBrowser, closeBrowser, snap } from './browser.mjs';
+export { closeBrowser };
 
 const HOST = 'https://com.timeinout.kr';
 const USER_HOST = 'https://user.timeinout.kr';
@@ -28,33 +29,12 @@ function monthRange(month) {
   return { y, m, last, sdate: `${y}-${p(m)}-01`, edate: `${y}-${p(m)}-${p(last)}` };
 }
 
-// 크롬 인스턴스 재사용 (요청마다 launch 안 함 → 매번 1~2초 절약)
-let _browser = null;
-async function getBrowser() {
-  if (_browser && _browser.isConnected()) return _browser;
-  _browser = await chromium.launch({ headless: true });
-  return _browser;
-}
-export async function closeBrowser() { if (_browser) { await _browser.close().catch(() => {}); _browser = null; } }
-
 async function isLoggedIn(context) {
   const page = await context.newPage();
   await page.goto(`${HOST}/`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   const ok = !/login/i.test(page.url()) && (await page.locator('input[name="Password"]').count()) === 0;
   await page.close();
   return ok;
-}
-
-// 스냅샷 플레이어용: 현재 화면을 jpeg base64 로 캡처
-async function snap(page, label, arr) {
-  if (!arr) return;
-  try {
-    // 전체 페이지 캡처 → 프론트에서 폭 맞추고 길면 스크롤
-    const buf = await page.screenshot({ type: 'jpeg', quality: 52, fullPage: true });
-    const s = { label, url: page.url(), img: 'data:image/jpeg;base64,' + buf.toString('base64') };
-    arr.push(s);
-    if (arr.onSnap) arr.onSnap(s); // 실시간 스트리밍용 콜백
-  } catch {}
 }
 
 async function login(context, { id, pw }, snapshots) {

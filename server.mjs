@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
+import { getCardPending, submitExpenses, getYagunTaxi } from './src/lib/bizplay.mjs';
 
 const app = express();
 const PORT = process.env.PORT || 8181;
@@ -54,9 +55,69 @@ app.post('/api/overtime/stream', async (req, res) => {
   res.end();
 });
 
-// 로컬 .env 프리필 (공개 저장소엔 자격증명 하드코딩 안 함)
+// 비즈플레이 카드 미결의(대기) 스트리밍
+app.post('/api/bizplay/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [bizplay] 미결의 / ${month}`);
+    const data = await getCardPending({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('bizplay 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 야근택시 전용 조회 (심야택시 미결의 + 타임인아웃 야근 증빙 매칭)
+app.post('/api/yagun/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [yagun] 야근택시 조회 / ${month}`);
+    const data = await getYagunTaxi({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('yagun 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 비즈플레이 규칙별 '실제 상신'(결의서 작성→용도→결재요청→결재선 확인) 스트리밍
+app.post('/api/bizplay/submit/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '', patternId } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [bizplay:submit] ${patternId} / ${month}`);
+    const data = await submitExpenses({ month, id, pw, patternId, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('bizplay 상신 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 로컬 .env 프리필 (공개 저장소엔 자격증명 하드코딩 안 함) — 레시피별
 app.get('/api/defaults', (req, res) => {
-  res.json({ id: process.env.TIMEINOUT_ID || '', pw: process.env.TIMEINOUT_PW || '', name: process.env.TIMEINOUT_NAME || '' });
+  res.json({
+    timeinout: { id: process.env.TIMEINOUT_ID || '', pw: process.env.TIMEINOUT_PW || '', name: process.env.TIMEINOUT_NAME || '' },
+    bizplay: { id: process.env.BIZPLAY_ID || '', pw: process.env.BIZPLAY_PW || '' },
+  });
 });
 
 app.listen(PORT, () => console.log(`\n✅ webpilot 실행: http://localhost:${PORT}\n`));
