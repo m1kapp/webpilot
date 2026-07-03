@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import express from 'express';
 import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
@@ -142,19 +142,33 @@ const encrypt = (obj) => { const iv = randomBytes(12); const c = createCipheriv(
 const decrypt = (b64) => { const buf = Buffer.from(b64, 'base64'); const d = createDecipheriv('aes-256-gcm', KEY, buf.subarray(0, 12)); d.setAuthTag(buf.subarray(12, 28)); return JSON.parse(Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString('utf8')); };
 
 let store = {};
-function persist() { mkdirSync('.auth', { recursive: true }); writeFileSync(ENC_FILE, encrypt(store)); }
+// 원자적 쓰기: temp에 쓰고 rename (중단/동시쓰기 시 파일 손상 방지)
+function atomicWrite(path, data) { const tmp = `${path}.tmp`; writeFileSync(tmp, data); renameSync(tmp, path); }
+function persist() { mkdirSync('.auth', { recursive: true }); atomicWrite(ENC_FILE, encrypt(store)); }
 function loadStore() {
-  if (existsSync(ENC_FILE)) { try { store = decrypt(readFileSync(ENC_FILE, 'utf8')); } catch { store = {}; } }
-  else { // 최초: .env 평문에서 암호화 스토어로 이관
+  if (existsSync(ENC_FILE)) {
+    try { store = decrypt(readFileSync(ENC_FILE, 'utf8')); }
+    catch { // 손상/키불일치 — 조용히 비우면 다음 저장이 덮어써 복구불가 → 백업 보존 + 경고
+      const bak = `${ENC_FILE}.corrupt-${Date.now()}`;
+      try { renameSync(ENC_FILE, bak); } catch {}
+      console.error(`⚠ accounts.enc 복호화 실패 — ${bak}로 백업 보존. 승객정보에서 재등록 필요.`);
+      store = {};
+    }
+  } else { // 최초: .env 평문에서 암호화 스토어로 이관
     for (const k of CRED_KEYS) if (process.env[k]) store[k] = process.env[k];
-    if (Object.keys(store).length) { persist(); clearEnvPlaintext(); }
+    if (Object.keys(store).length) {
+      persist();
+      // 암호화 파일이 실제로 복호화되는지 검증한 뒤에만 .env 평문 정리 (검증 실패 시 .env 백업으로 유지)
+      try { decrypt(readFileSync(ENC_FILE, 'utf8')); clearEnvPlaintext(); }
+      catch { console.error('⚠ accounts.enc 검증 실패 — .env 평문을 복구용으로 유지합니다.'); }
+    }
   }
   for (const k of CRED_KEYS) if (store[k]) process.env[k] = store[k]; // 런타임 반영
 }
-function clearEnvPlaintext() { // .env에서 자격증명 평문 라인 제거 (암호화 스토어로 이관 후)
+function clearEnvPlaintext() { // .env에서 자격증명 평문 라인 제거 (export/선행공백 형태 포함)
   if (!existsSync('.env')) return;
-  const lines = readFileSync('.env', 'utf8').split('\n').filter((l) => { const m = l.match(/^([A-Z0-9_]+)=/); return !(m && CRED_KEYS.includes(m[1])); });
-  writeFileSync('.env', lines.join('\n').replace(/\n+$/, '\n'));
+  const lines = readFileSync('.env', 'utf8').split('\n').filter((l) => { const m = l.match(/^\s*(?:export\s+)?([A-Z0-9_]+)=/); return !(m && CRED_KEYS.includes(m[1])); });
+  atomicWrite('.env', lines.join('\n').replace(/\n+$/, '\n'));
 }
 function setCreds(updates) { for (const [k, v] of Object.entries(updates)) if (v != null && v !== '') { store[k] = v; process.env[k] = v; } persist(); }
 loadStore();
@@ -178,6 +192,7 @@ app.post('/api/accounts', (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.listen(PORT, () => console.log(`\n✅ webpilot 실행: http://localhost:${PORT}\n`));
+// 127.0.0.1 바인딩: 평문 자격증명을 반환하는 /api/accounts가 LAN에 노출되지 않도록 localhost 전용
+app.listen(PORT, '127.0.0.1', () => console.log(`\n✅ webpilot 실행: http://localhost:${PORT}\n`));
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await closeBrowser(); process.exit(0); });
