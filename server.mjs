@@ -4,7 +4,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:
 import express from 'express';
 import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
 import { getCardPending, submitExpenses, getYagunTaxi } from './src/lib/bizplay.mjs';
-import { getCorrectionTargets } from './src/lib/correction.mjs';
+import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
 
 const app = express();
 const PORT = process.env.PORT || 8181;
@@ -91,6 +91,25 @@ app.post('/api/correction/stream', async (req, res) => {
     send({ type: 'result', data });
   } catch (e) {
     console.error('correction 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 근태 정정 '실제 상신': InOutModify 폼 제출 (출근/퇴근/사유 → 수정 요청)
+app.post('/api/correction/submit/stream', async (req, res) => {
+  const { rows = [], memo } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [correction:submit] ${rows.length}건`);
+    const data = await submitCorrections({ rows, memo, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('correction 상신 실패:', e.message);
     send({ type: 'error', error: e.message });
   }
   res.end();

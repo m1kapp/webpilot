@@ -498,7 +498,23 @@ function render(d) {
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
   else if (d.recipe === 'correction') { $('dash-correction').style.display = 'block'; renderCorrection(d); }
+  else if (d.recipe === 'correction-submit') { $('dash-correction').style.display = 'block'; renderCorrectionSubmit(d); }
   else { $('dash-timeinout').style.display = 'block'; renderTimeinout(d); }
+}
+function renderCorrectionSubmit(d) {
+  lastData = d;
+  const r = d.results || [];
+  $('cr-count').textContent = r.length + '건';
+  $('cr-sub').innerHTML = '정정 신청 <b>상신 결과</b>';
+  $('cr-evi').textContent = (d.okCount || 0) + '건';
+  $('cr-noevi').textContent = (d.failCount || 0) + '건';
+  $('cr-list').innerHTML = r.map(x => `<tr>
+    <td>${esc(x.date)}</td>
+    <td style="color:#8a93a6">출 ${esc(x.in || '-')} / 퇴 ${esc(x.out || '-')}</td>
+    <td colspan="3" style="font-weight:600;color:${x.ok ? '#12a150' : '#d3455b'}">${x.ok ? '✓ 정정 신청 완료 (결재 대기)' : '✗ ' + esc(x.msg || '실패')}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">신청 결과 없음</td></tr>';
+  $('cr-confirm').style.display = 'none';
+  $('cr-go').disabled = true;
 }
 function renderBizplay(d) {
   lastData = d;
@@ -836,10 +852,11 @@ $('bz-confirm').addEventListener('click', (e) => {
 // 상신 결과 → 다시 조회 (활성 레시피 기준)
 document.addEventListener('click', (e) => { if (e.target.closest('#bs-reload')) load(); });
 
-// 출퇴근정정 자동화: 입력한 출근/퇴근 시각 수집 → 정정 신청 (실제 상신은 폼 딥연구 후)
+// 출퇴근정정 자동화: 입력한 출근/퇴근 시각 수집 → InOutModify 폼 실제 상신
 const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
-$('cr-go').addEventListener('click', () => {
+$('cr-go').addEventListener('click', async () => {
   const d = lastData; if (!d || d.recipe !== 'correction') return;
+  if (d.summary.submitCheckOk === false) { $('cr-confirm').style.display = 'block'; $('cr-confirm').innerHTML = '⚠ 이미 신청내역 확인 실패 — 중복 방지를 위해 상신을 잠급니다. <b>새로고침</b> 후 재시도하세요.'; return; }
   const rows = [];
   for (const inp of document.querySelectorAll('#cr-list .cr-in')) {
     const date = inp.dataset.date;
@@ -850,10 +867,11 @@ $('cr-go').addEventListener('click', () => {
     rows.push({ date, in: iv, out: ov });
   }
   if (!rows.length) { $('cr-confirm').style.display = 'block'; $('cr-confirm').innerHTML = '정정할 날의 <b>출근·퇴근 시간을 입력</b>하세요.'; return; }
-  $('cr-confirm').style.display = 'block';
-  $('cr-confirm').innerHTML = `<b>✔ 정정 신청 ${rows.length}건</b><br>`
-    + rows.map(r => `&nbsp;&nbsp;· <b>${esc(r.date)}</b> → 출근 <b>${esc(r.in)}</b> · 퇴근 <b>${esc(r.out)}</b>`).join('<br>')
-    + `<br><br><span style="color:#8a6d1a">⚠ 타임인아웃 <b>'출퇴근 정보수정 요청'</b>(실제 결재 상신) 자동화는 폼 딥연구 후 붙일 예정 — 지금은 입력값 <b>확인</b> 단계.</span>`;
+  if (!confirm(`출퇴근 정정 ${rows.length}건을 실제로 상신합니다.\n`
+    + rows.map(r => `· ${r.date}  출근 ${r.in} · 퇴근 ${r.out}`).join('\n')
+    + `\n\n결재선: 이학준(전략사업본부) · 수신참조 김용덕\n진행할까요?`)) return;
+  await streamRun('/api/correction/submit/stream', { rows },
+    { urlText: 'user.timeinout.kr', capText: '출퇴근 정정 신청 상신 중 (단계별 실시간 표시)', loadingText: '타임인아웃 정정 신청 중…' });
 });
 
 // 야근택시 레시피: 🚀 증빙 첨부 + 일괄 상신
