@@ -245,8 +245,11 @@
           <div class="kpi"><div class="l">제외</div><div class="v" id="yg-noproof">-</div><div class="l">기록 없음 → 증빙 불가</div></div>
         </div>
         <div class="card">
-          <h2 style="display:flex;align-items:center;justify-content:space-between">야근택시 일괄 결의
-            <button id="yg-go" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🚀 증빙 첨부 + 일괄 상신</button></h2>
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">야근택시 일괄 결의
+            <span style="display:flex;gap:8px">
+              <button id="yg-go-pending" style="display:none;background:linear-gradient(135deg,#e0a83a,#c07d13);padding:9px 16px;font-size:13px">🕓 정정 대기 <span id="yg-pc">0</span>건 미리 결의</button>
+              <button id="yg-go" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🚀 증빙 첨부 + 일괄 상신</button>
+            </span></h2>
           <div class="bz-wrap">
             <table class="bz-table">
               <thead><tr><th>택시 사용</th><th style="text-align:right">금액</th><th>야근일</th><th>출~퇴근</th><th>초과</th><th>증빙</th></tr></thead>
@@ -432,10 +435,10 @@ async function load() {
 }
 
 // 실제 상신(결의서 작성 → 용도 → 결재요청 → 결재선 확인) — 규칙 단위
-async function runSubmit(patternId) {
+async function runSubmit(patternId, yagunMode) {
   if (!ensureAccounts()) return;
   const month = $('month').value;
-  await streamRun('/api/bizplay/submit/stream', { month, patternId },
+  await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode },
     { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (건별 결재요청)' });
 }
 
@@ -626,6 +629,10 @@ function renderYagun(d) {
     || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">심야 택시 미결의가 없어요 🎉</td></tr>';
   $('yg-confirm').style.display = 'none';
   $('yg-go').disabled = !s.withProof;
+  // 정정 대기건 '미리 결의' 버튼: 정정 신청해둔 심야택시가 있으면 노출
+  const pc = s.pendingCorrection || 0;
+  $('yg-go-pending').style.display = pc ? 'inline-block' : 'none';
+  $('yg-pc').textContent = pc;
 }
 function renderTimeinout(d) {
   lastData = d;
@@ -884,6 +891,14 @@ $('yg-go').addEventListener('click', () => {
     <br><span style="color:#8a3d3d">용도 <b>야근교통비</b> · 각 건에 <b>타임인아웃 야근/휴일근무 증빙 이미지 자동첨부</b> · 결재선 <b>법인카드 지출결의서</b>(임성훈 CFO 외) · 기록 없는 ${s.noProof}건은 증빙 불가로 제외.</span>`;
   if (!confirm(`야근택시 ${s.withProof}건을 실제로 상신합니다.\n· 용도: 야근교통비\n· 각 건에 타임인아웃 야근/휴일 증빙 자동첨부\n· 결재선: 법인카드 지출결의서\n· 기록 없는 ${s.noProof}건은 제외\n\n진행할까요?`)) { $('yg-confirm').style.display = 'none'; return; }
   runSubmit('p2');
+});
+// 정정 대기건 '미리 결의': 승인 전이지만 정정 신청값을 증빙으로 써서 지금 결의
+$('yg-go-pending').addEventListener('click', () => {
+  const d = lastData; if (!d || d.recipe !== 'yagun') return;
+  const pc = d.summary.pendingCorrection || 0;
+  if (!pc) return;
+  if (!confirm(`정정 대기 ${pc}건을 '미리 결의'합니다.\n· 아직 결재 대기 중인 출퇴근 정정 신청값을 증빙으로 사용\n· 용도: 야근교통비 · 결재선: 법인카드 지출결의서\n· ⚠ 정정이 반려되면 이 결의도 근거가 사라질 수 있어요\n\n진행할까요?`)) return;
+  runSubmit('p2', 'pending');
 });
 
 // 초기화: 계정 상태 + 레시피 목록 + 계정관리 폼

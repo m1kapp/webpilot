@@ -136,15 +136,15 @@ app.post('/api/yagun/stream', async (req, res) => {
 
 // 비즈플레이 규칙별 '실제 상신'(결의서 작성→용도→결재요청→결재선 확인) 스트리밍
 app.post('/api/bizplay/submit/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '', patternId } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', patternId, yagunMode } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
   const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
   try {
-    console.log(`▶ [bizplay:submit] ${patternId} / ${month}`);
-    const data = await submitExpenses({ month, id, pw, patternId, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    console.log(`▶ [bizplay:submit] ${patternId} / ${month}${yagunMode === 'pending' ? ' (정정 대기 미리결의)' : ''}`);
+    const data = await submitExpenses({ month, id, pw, patternId, yagunMode, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
     send({ type: 'result', data });
   } catch (e) {
     console.error('bizplay 상신 실패:', e.message);

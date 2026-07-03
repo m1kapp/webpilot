@@ -294,6 +294,44 @@ async function renderYagunImage(rec, dateStr) {
     return path;
   } finally { await pg.close().catch(() => {}); }
 }
+// 정정 신청(대기)값 기반 야근 증빙 이미지 — 승인 전 '미리 결의'용
+async function renderYagunCorrectionImage(corr, dateStr, dow) {
+  const browser = await getBrowser();
+  const pg = await browser.newPage({ viewport: { width: 600, height: 320 }, deviceScaleFactor: 2 });
+  try {
+    const toM = (t) => { const m = String(t).match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+    const iM = toM(corr.reqIn); let oM = toM(corr.reqOut); const overnight = iM != null && oM != null && oM < iM;
+    if (overnight) oM += 1440;   // 자정 넘김
+    const workMin = (iM != null && oM != null) ? oM - iM : 0;
+    const otMin = Math.max(0, workMin - 480);   // 8h 초과분 = 야근
+    const outLbl = overnight ? `익일 ${corr.reqOut}` : corr.reqOut;
+    const logo = TIMEINOUT_LOGO ? `<img src="${TIMEINOUT_LOGO}" width="26" height="26" style="border-radius:6px;vertical-align:middle"/>` : '';
+    await pg.setContent(`<div id="card" style="font-family:'Apple SD Gothic Neo',AppleGothic,sans-serif;padding:22px;width:540px;background:#fff;border:1px solid #e7ebf3;border-radius:10px">
+      <div style="display:flex;align-items:center;gap:9px">
+        ${logo}<span style="font-weight:800;font-size:17px;color:#1f2a44">🌙 야근 증빙 · 출퇴근 정정 신청</span></div>
+      <div style="color:#6b7488;font-size:12.5px;margin:6px 0 14px">${dateStr}${dow ? ` (${dow})` : ''} · 출퇴근 정정 신청값 기준 · 결재 <b style="color:#c07d13">${corr.status}</b></div>
+      <table style="border-collapse:collapse;width:100%;font-size:13.5px;text-align:center">
+        <tr style="background:#eef2fb;color:#42506b">
+          <th style="border:1px solid #d4dbec;padding:8px">출근</th><th style="border:1px solid #d4dbec;padding:8px">퇴근</th>
+          <th style="border:1px solid #d4dbec;padding:8px">근무</th><th style="border:1px solid #d4dbec;padding:8px">야근(초과)</th></tr>
+        <tr>
+          <td style="border:1px solid #d4dbec;padding:9px">${corr.reqIn}</td>
+          <td style="border:1px solid #d4dbec;padding:9px">${outLbl}</td>
+          <td style="border:1px solid #d4dbec;padding:9px">${fmt(workMin)}</td>
+          <td style="border:1px solid #d4dbec;padding:9px;color:#e0484d;font-weight:800">${fmt(otMin)}</td></tr>
+      </table>
+      <div style="color:#96a0b5;font-size:11px;margin-top:11px">※ 출퇴근 정보수정 요청(결재 <b>${corr.status}</b>) 신청값 기준 · 승인 시 야근 확정 · 야근 택시비 증빙</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6;color:#aab2c2;font-size:10.5px">
+        ${TIMEINOUT_LOGO ? `<img src="${TIMEINOUT_LOGO}" width="13" height="13" style="border-radius:3px;opacity:.8"/>` : ''}
+        <span>출처: <b style="color:#8f98a8">타임인아웃</b> (user.timeinout.kr) · 출퇴근 정보수정 요청 · webpilot 자동 캡처</span></div>
+    </div>`);
+    const buf = await pg.locator('#card').screenshot({ type: 'png' });
+    mkdirSync('.tmp', { recursive: true });
+    const path = `.tmp/yagun-corr-${dateStr}.png`;
+    writeFileSync(path, buf);
+    return path;
+  } finally { await pg.close().catch(() => {}); }
+}
 // 결의서에 파일 첨부: [파일첨부] → 업로드 팝업 → setInputFiles(입력 1개) → [업로드]
 async function attachFile(ctx, app, modal, filePath, log) {
   const popupWait = ctx.waitForEvent('page', { timeout: 10000 }).catch(() => null);
@@ -357,7 +395,7 @@ async function submitOne({ ctx, app, frame, item, useName, snapshots, log, getDi
   return ok ? 'submitted' : 'submitted'; // 팝업 닫힘 + 등록 알림이면 완료(알림 유실 대비 낙관 처리)
 }
 
-export async function submitExpenses({ id, pw, month, patternId, onSnapshot, freshLogin }) {
+export async function submitExpenses({ id, pw, month, patternId, yagunMode = 'record', onSnapshot, freshLogin }) {
   const creds = { id: id || process.env.BIZPLAY_ID, pw: pw || process.env.BIZPLAY_PW };
   const snapshots = []; if (onSnapshot) snapshots.onSnap = onSnapshot;
   const log = (m) => console.error('[bizplay:submit]', m);
@@ -383,7 +421,7 @@ export async function submitExpenses({ id, pw, month, patternId, onSnapshot, fre
     log(`'${rule.use}' 상신 대상 ${targets.length}건 · 해외 대기 ${notReady.length}건 (컷오프 ${cutoff})`);
 
     // 야근택시: 증빙용 타임인아웃 야근기록 선조회 (필요한 야근월 전부)
-    let timeMap = null;
+    let timeMap = null, corrMap = null;
     if (rule.attach === 'yagun' && targets.length) {
       timeMap = {};
       const months = [...new Set(targets.map((it) => yagunDateOf(it.date).slice(0, 7)))];
@@ -395,22 +433,36 @@ export async function submitExpenses({ id, pw, month, patternId, onSnapshot, fre
         } catch (e) { log(`타임인아웃 ${mo} 조회 실패: ` + e.message.split('\n')[0]); }
       }
       log('타임인아웃 야근데이터 ' + Object.keys(timeMap).length + '일 확보');
+      if (yagunMode === 'pending') {   // 정정 대기값을 증빙으로 쓰는 '미리 결의' 모드
+        await snap(app, '출퇴근 정정 신청(대기) 내역 조회 — 정정 기반 증빙', snapshots);
+        try { corrMap = (await getSubmittedCorrections(log, month)).byDate || {}; }
+        catch (e) { corrMap = {}; log('정정 신청 조회 실패: ' + e.message.split('\n')[0]); }
+      }
     }
 
     const submitted = [], skipped = [...notReady], failed = [];
     for (const item of targets) {
       log(`상신: ${item.merchant} ${item.amount}`);
       lastDialog = '';
-      // 증빙 이미지 준비 (야근택시): 평일 야근/주말 휴일근무 기록이 있어야 상신 가능 (없으면 증빙 불가 → 제외)
+      // 증빙 이미지 준비 (야근택시)
       let attachPath = null;
       if (rule.attach === 'yagun') {
         const yd = yagunDateOf(item.date);
         const rec = timeMap && timeMap[yd];
         const isHol = rec && (rec.weekend || rec.holiday);
         const otMin = rec ? (isHol ? rec.holMin : rec.otMin) : 0;
-        if (!rec || rec.missing || !(otMin > 0)) { skipped.push({ ...item, reason: `야근/휴일 기록 없음 (${yd}) — 증빙 불가로 제외` }); continue; }
-        try { attachPath = await renderYagunImage(rec, yd); }
-        catch (e) { attachPath = null; log('증빙 이미지 실패: ' + e.message.split('\n')[0]); }
+        const hasRecord = !!(rec && !rec.missing && otMin > 0);
+        if (yagunMode === 'pending') {   // 정정 대기건만: 기록 없고 정정 신청 있는 날, 정정값 증빙
+          if (hasRecord) { skipped.push({ ...item, reason: `정상 야근 기록 있음 (${yd}) — 일반 결의 대상` }); continue; }
+          const corr = corrMap && corrMap[yd];
+          if (!corr) { skipped.push({ ...item, reason: `정정 신청 없음 (${yd}) — 미리 결의 대상 아님` }); continue; }
+          try { attachPath = await renderYagunCorrectionImage(corr, yd, rec ? rec.dow : ''); }
+          catch (e) { attachPath = null; log('정정 증빙 이미지 실패: ' + e.message.split('\n')[0]); }
+        } else {                          // 기본: 실제 야근/휴일 기록 있어야 상신 가능 (없으면 제외)
+          if (!hasRecord) { skipped.push({ ...item, reason: `야근/휴일 기록 없음 (${yd}) — 증빙 불가로 제외` }); continue; }
+          try { attachPath = await renderYagunImage(rec, yd); }
+          catch (e) { attachPath = null; log('증빙 이미지 실패: ' + e.message.split('\n')[0]); }
+        }
       }
       let r;
       try { r = await submitOne({ ctx, app, frame, item, useName: rule.submitUse, snapshots, log, getDialog: () => lastDialog, attachPath }); }
