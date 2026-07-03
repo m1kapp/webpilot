@@ -2,6 +2,7 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { getBrowser, snap } from './browser.mjs';
 import { getOvertimeEmployee, fmt } from './timeinout.mjs';
+import { getSubmittedCorrections } from './correction.mjs';
 
 // 타임인아웃 로고(파비콘) → 증빙 이미지에 출처 표기용 (base64 인라인)
 let TIMEINOUT_LOGO = '';
@@ -182,20 +183,29 @@ export async function getYagunTaxi({ id, pw, month, onSnapshot, freshLogin }) {
         catch (e) { log(`타임인아웃 ${mo} 실패: ` + e.message.split('\n')[0]); }
       }
     }
+    // 근태가 깨진 심야택시 날에 '출퇴근 정정 신청(대기)'이 있으면 → 승인 후 증빙 가능 예정으로 표시
+    let submittedCorr = {};
+    if (taxis.length) {
+      await snap(app, '출퇴근 정정 신청 내역 대조 (정정 대기 → 증빙 예정)', snapshots);
+      try { submittedCorr = (await getSubmittedCorrections(log, month)).byDate || {}; }
+      catch (e) { log('정정 신청 조회 실패: ' + e.message.split('\n')[0]); }
+    }
     const items = taxis.map((it) => {
       const yd = yagunDateOf(it.date); const rec = timeMap[yd];
       const isHol = !!(rec && (rec.weekend || rec.holiday));      // 주말/휴일 근무 = holMin
       const otMin = rec ? (isHol ? rec.holMin : rec.otMin) : 0;
       const worked = !!(rec && !rec.missing && otMin > 0);        // 평일 야근 or 휴일 근무 기록 존재
-      return { ...it, yagunDate: yd, dow: rec ? rec.dow : '', yagunIn: rec ? rec.inText : '', yagunOut: rec ? rec.outText : '', otText: worked ? fmt(otMin) : '', isHoliday: isHol, hasProof: worked };
+      const corr = !worked ? submittedCorr[yd] : null;            // 근태 없지만 정정 신청 대기 중
+      return { ...it, yagunDate: yd, dow: rec ? rec.dow : '', yagunIn: rec ? rec.inText : '', yagunOut: rec ? rec.outText : '', otText: worked ? fmt(otMin) : '', isHoliday: isHol, hasProof: worked, pendingCorrection: !!corr, corrIn: corr ? corr.reqIn : '', corrOut: corr ? corr.reqOut : '', corrStatus: corr ? corr.status : '' };
     });
     const withProof = items.filter((x) => x.hasProof);
+    const pendingCorr = items.filter((x) => !x.hasProof && x.pendingCorrection);
     const submitAmt = withProof.reduce((a, x) => a + x.amount, 0);
     const total = items.reduce((a, x) => a + x.amount, 0);
-    log(`야근택시 ${items.length}건 · 상신대상(증빙있음) ${withProof.length}건 · 제외 ${items.length - withProof.length}건`);
+    log(`야근택시 ${items.length}건 · 증빙있음 ${withProof.length}건 · 정정대기 ${pendingCorr.length}건 · 제외 ${items.length - withProof.length - pendingCorr.length}건`);
     return {
       recipe: 'yagun', month, patternId: 'p2', snapshots, items,
-      summary: { count: items.length, withProof: withProof.length, noProof: items.length - withProof.length, amount: submitAmt, totalText: total.toLocaleString('en-US') + '원' },
+      summary: { count: items.length, withProof: withProof.length, pendingCorrection: pendingCorr.length, noProof: items.length - withProof.length - pendingCorr.length, amount: submitAmt, totalText: total.toLocaleString('en-US') + '원' },
     };
   } finally { await ctx.close().catch(() => {}); }
 }

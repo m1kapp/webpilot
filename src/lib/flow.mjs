@@ -33,9 +33,3 @@ export async function getDayActivity(dateStr) {
     lastEnd: last ? (last.end || last.start) : null, lastText: last ? (last.endText || last.startText) : '',
   };
 }
-
-// 특정 키워드로 내 게시물 시간 조회(보조 근거) — searchPosts는 날짜필터 없어 클라이언트 필터
-export async function getPostsByKeyword(searchWord, { orderType = 'LATEST' } = {}) {
-  const data = await flowGet('/user/search/posts', { searchWord, orderType });
-  return (data?.posts || []).map((p) => ({ title: p.ttl, commtTitle: p.commtTtl, registerId: p.registerId, at: p.registeredDateTime }));
-}

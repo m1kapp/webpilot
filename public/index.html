@@ -585,22 +585,28 @@ function renderCorrection(d) {
         <td><input class="cr-out" data-date="${esc(x.date)}" value="${esc(x.suggestOut)}" placeholder="HH:MM" style="${inCss}"></td></tr>`).join('')
     || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">정정할 누락일이 없어요 🎉</td></tr>';
   $('cr-confirm').style.display = 'none';
-  $('cr-go').disabled = !s.pending;
+  // '이미 신청' 확인 실패 시 → 중복 신청 위험이라 버튼 잠금 + 경고
+  const checkFailed = s.submitCheckOk === false;
+  $('cr-go').disabled = !s.pending || checkFailed;
+  $('cr-go').title = checkFailed ? '결재함(상신함) 확인 실패 — 중복 방지를 위해 신청을 잠급니다. 새로고침 후 재시도하세요.' : '';
+  $('cr-sub').innerHTML = checkFailed
+    ? `${esc(d.month)} · <span style="color:#e6484d;font-weight:700">⚠ 이미 신청내역 확인 실패 → 신청 잠금</span>`
+    : esc(d.month);
 }
 function renderYagun(d) {
   lastData = d;
   const s = d.summary;
   $('yg-count').textContent = s.count + '건';
-  $('yg-sub').textContent = `${s.totalText} · ${d.month}`;
+  $('yg-sub').innerHTML = `${esc(s.totalText)} · ${esc(d.month)}${s.pendingCorrection ? ` · <span style="color:#c07d13;font-weight:700">정정대기 ${s.pendingCorrection}건</span>` : ''}`;
   $('yg-proof').textContent = s.withProof + '건';
   $('yg-noproof').textContent = s.noProof + '건';
   $('yg-list').innerHTML = d.items.map(x => `<tr>
     <td>${esc(x.date)}<br><span style="color:#8a93a6;font-size:11px">${esc(x.merchant)}</span></td>
     <td class="amt ${x.amount < 0 ? 'neg' : ''}">${x.amount.toLocaleString('en-US')}</td>
     <td>${esc(x.yagunDate)}${x.dow ? `(${esc(x.dow)})` : ''}</td>
-    <td>${x.hasProof ? `${esc(x.yagunIn)}~${esc(x.yagunOut)}` : '<span style="color:#c1c6d2">-</span>'}</td>
+    <td>${x.hasProof ? `${esc(x.yagunIn)}~${esc(x.yagunOut)}` : x.pendingCorrection ? `<span style="color:#c07d13">정정 ${esc(x.corrIn)}~${esc(x.corrOut)}</span>` : '<span style="color:#c1c6d2">-</span>'}</td>
     <td style="color:#e0484d;font-weight:600">${x.hasProof ? esc(x.otText) : '-'}</td>
-    <td>${x.hasProof ? `<span style="color:#12a150;font-weight:700">✓ ${x.isHoliday ? '휴일' : '야근'}</span>` : '<span style="color:#aab1bf">제외(기록없음)</span>'}</td></tr>`).join('')
+    <td>${x.hasProof ? `<span style="color:#12a150;font-weight:700">✓ ${x.isHoliday ? '휴일' : '야근'}</span>` : x.pendingCorrection ? `<span style="color:#c07d13;font-weight:700">🕓 정정 대기</span><br><span style="color:#aab1bf;font-size:10.5px">승인 후 증빙</span>` : '<span style="color:#aab1bf">제외(기록없음)</span>'}</td></tr>`).join('')
     || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">심야 택시 미결의가 없어요 🎉</td></tr>';
   $('yg-confirm').style.display = 'none';
   $('yg-go').disabled = !s.withProof;
@@ -727,6 +733,7 @@ function renderTimeinout(d) {
 }
 
 $('go').addEventListener('click', load);
+$('month').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('go').disabled) load(); });
 $('excludeCorrected').addEventListener('change', () => { if (lastData) render(lastData); });
 
 // ── 사이드 탭 (레시피 / 계정관리) ──
