@@ -27,8 +27,30 @@
   .recipe .ic img { width:26px; height:26px; object-fit:contain; }
   .recipe .rt { font-size:13.5px; font-weight:700; color:var(--ink); }
   .recipe .rs { font-size:11.5px; color:var(--muted); margin-top:1px; }
-  .recipe .dot { margin-left:auto; width:7px; height:7px; border-radius:50%; background:#cdd3e4; }
+  .recipe .dot { margin-left:auto; align-self:flex-start; margin-top:4px; width:7px; height:7px; border-radius:50%; background:#cdd3e4; }
   .recipe.on .dot { background:var(--accent); }
+  .recipe { align-items:flex-start; }
+  .recipe .svc { display:flex; align-items:center; gap:6px; margin-top:9px; }
+  .recipe .svc img { width:24px; height:24px; border-radius:7px; object-fit:contain; background:#fff; box-shadow:0 1px 4px rgba(30,40,80,.12); }
+  .recipe .svc .plus { color:#aab1c2; font-size:12px; font-weight:700; }
+  .side-tabs { display:flex; gap:4px; margin-bottom:14px; background:#eef0f7; padding:3px; border-radius:11px; }
+  .stab { flex:1; padding:8px 0; border:none; background:transparent; border-radius:8px; font-size:12.5px; font-weight:700; color:var(--muted); cursor:pointer; transition:.15s; }
+  .stab.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(30,40,80,.1); }
+  .acct-chip { font-size:12px; background:#f3f5fb; border-radius:9px; padding:9px 11px; margin:2px 0 12px; line-height:1.7; }
+  .badge { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:999px; letter-spacing:.2px; }
+  .badge.ok { background:#e7f6ec; color:#17915a; }
+  .badge.no { background:#fdf1e0; color:#c07d13; }
+  .sdot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+  .sdot.ok { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.16); }
+  .sdot.no { background:#e0a83a; box-shadow:0 0 0 3px rgba(224,168,58,.16); }
+  .acct-chip .row { display:flex; align-items:center; gap:8px; }
+  .acct-head { display:flex; align-items:center; gap:11px; margin-bottom:20px; }
+  .acct-head img { width:40px; height:40px; border-radius:11px; box-shadow:0 1px 5px rgba(30,40,80,.14); }
+  .acct-head .an { font-size:18px; font-weight:800; color:var(--ink); }
+  .acct-head .ad { font-size:12px; color:var(--muted); margin-top:1px; }
+  #p-account .lp label:first-child { margin-top:0; }
+  #pa-status { margin:14px 0 16px; min-height:20px; }
+  #pa-save { width:100%; }
   main { flex:1 1 auto; display:flex; align-items:center; justify-content:center; padding:24px; min-width:0; }
   /* 비즈플레이 목록 */
   .bz-table { width:100%; border-collapse:collapse; font-size:12.5px; }
@@ -73,7 +95,7 @@
   .mini-spin { display:none; width:13px; height:13px; border:2px solid rgba(255,255,255,.22); border-top-color:#8fa2ff; border-radius:50%; animation:spin .7s linear infinite; }
   .browser.loading .mini-spin { display:inline-block; }
   .viewport { position:relative; height:700px; overflow-y:auto; overflow-x:hidden; background:#fff; }
-  .viewport img { width:100%; height:auto; display:block; }
+  .viewport > img { width:100%; height:auto; display:block; }
   .scrim { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:16px; background:rgba(244,246,251,.97); color:#465; font-size:14px; }
   .spinner { width:36px; height:36px; border:3px solid #d3d9e8; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
@@ -107,10 +129,6 @@
   #go { width:100%; margin-top:24px; padding:13px; font-size:15px; font-weight:700; letter-spacing:-.2px;
     background:var(--grad); box-shadow:0 10px 22px -8px rgba(99,102,241,.6); }
   #go:hover:not(:disabled) { filter:brightness(1.05); transform:translateY(-1px); }
-  .pw-wrap { position:relative; }
-  .pw-wrap input { padding-right:46px; }
-  .pw-toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:transparent; color:#8a93a6; font-size:15px; padding:6px 8px; }
-  .pw-toggle:hover { color:var(--blue); }
   .lp .row { display:flex; gap:10px; } .lp .row > div { flex:1; }
   .lp #status { text-align:center; }
   .segmented { display:flex; background:#eef1f8; border-radius:10px; padding:4px; margin:16px 0 6px; }
@@ -124,8 +142,12 @@
 </header>
 <div class="shell">
   <aside class="sidebar">
-    <div class="side-t">자동화 레시피</div>
-    <div id="recipeList"></div>
+    <div class="side-tabs">
+      <button type="button" class="stab on" data-tab="recipes">목적지</button>
+      <button type="button" class="stab" data-tab="accounts">승객정보</button>
+    </div>
+    <div id="pane-recipes"><div id="recipeList"></div></div>
+    <div id="pane-accounts" style="display:none"><div id="acctList"></div></div>
   </aside>
   <main>
   <!-- 가상 사파리: 로그인 → 스냅샷 재생 모두 이 안에서 -->
@@ -141,18 +163,21 @@
       <div class="page-login" id="p-login">
         <div class="lp">
           <div class="brand">🛫 webpilot <span id="lp-brand">· 타임인아웃 근태 조종석</span></div>
-          <div class="sub" id="lp-sub">로그인하면 브라우저가 대신 접속해 데이터를 수집·분석합니다.</div>
-          <label>아이디</label>
-          <input id="tid" type="text" placeholder="아이디" autocomplete="username" />
-          <label>비밀번호</label>
-          <div class="pw-wrap">
-            <input id="tpw" type="password" placeholder="비밀번호" autocomplete="current-password" />
-            <button type="button" class="pw-toggle" id="pwToggle" aria-label="비밀번호 표시">👁</button>
-          </div>
+          <div class="sub" id="lp-sub">저장된 계정으로 브라우저가 대신 접속해 데이터를 수집·분석합니다.</div>
+          <div id="lp-acct" class="acct-chip"></div>
           <label>월</label>
           <input id="month" type="month" value="2026-06" style="width:100%" />
-          <button id="go">로그인하고 자동 분석 ▶</button>
+          <button id="go">▶ 실행 (저장된 계정으로)</button>
           <div id="status"></div>
+        </div>
+      </div>
+      <!-- 계정 저장 화면 (계정관리 탭에서 앱 선택 시) -->
+      <div class="page-login" id="p-account" style="display:none">
+        <div class="lp">
+          <div class="acct-head" id="pa-head"></div>
+          <div id="pa-fields"></div>
+          <div id="pa-status"></div>
+          <button id="pa-save">등록</button>
         </div>
       </div>
       <!-- 스냅샷 프레임 -->
@@ -232,6 +257,25 @@
           <p style="color:var(--muted);font-size:12px;margin:12px 0 0"><b>야근/휴일근무 기록이 있는 건만 상신</b>(증빙 이미지 자동첨부) · 용도 <b>야근교통비</b> · 결재선 <b>법인카드 지출결의서</b> · 기록 없는 건은 증빙 불가로 <b>제외</b>.</p>
         </div>
       </div>
+      <div id="dash-correction" style="display:none">
+        <div class="kpis" style="margin-bottom:16px">
+          <div class="kpi"><div class="l">누락일</div><div class="v bad" id="cr-count">-</div><div class="l" id="cr-sub"></div></div>
+          <div class="kpi" style="border-color:#22c55e"><div class="l">신청 완료</div><div class="v ok" id="cr-evi">-</div><div class="l">결재 대기/승인</div></div>
+          <div class="kpi" style="border-color:#e6484d"><div class="l">신청 필요</div><div class="v bad" id="cr-noevi">-</div><div class="l">아직 미신청</div></div>
+        </div>
+        <div class="card">
+          <h2 style="display:flex;align-items:center;justify-content:space-between">출퇴근 정정 신청
+            <button id="cr-go" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🚀 정정 일괄 신청</button></h2>
+          <div class="bz-wrap">
+            <table class="bz-table">
+              <thead><tr><th>일자</th><th>현재 기록</th><th>Flow 활동 (대조 근거)</th><th>출근 정정</th><th>퇴근 정정</th></tr></thead>
+              <tbody id="cr-list"></tbody>
+            </table>
+          </div>
+          <div id="cr-confirm" style="display:none;margin-top:12px;padding:12px 14px;background:#fdf1f1;border:1px solid #f2d0d0;border-radius:12px;font-size:13px;color:#8a3d3d"></div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0"><b>제안 규칙</b>: 출근 ≤ <b>10:30</b>(애매하면 10:30) · 퇴근 ≥ <b>18:00</b> · 근무 <b>9시간</b> 이상 · Flow 활동 반영 → 자동 채움. 확인·수정 후 채운 날만 정정 신청.</p>
+        </div>
+      </div>
       </div><!-- #dash -->
     </div><!-- viewport -->
     <div class="playbar">
@@ -252,27 +296,35 @@ const esc = (s) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;',
 
 // ── 자동화 레시피 정의 ──
 const RECIPES = [
-  { id: 'timeinout', icon: '/icons/timeinout.png', label: '타임인아웃', sub: '근태 · 초과근무',
+  { id: 'timeinout', icon: '/icons/timeinout.png', label: '초과근무 분석', sub: '월 야근 · 주52 체크', services: ['timeinout'],
     brand: '· 타임인아웃 근태 조종석', desc: '로그인하면 <b>타임인아웃</b>에 브라우저가 대신 접속해 내 근태를 수집·분석합니다.',
     endpoint: '/api/overtime/stream', creds: 'timeinout', loginUrl: 'com.timeinout.kr',
     resultUrl: (d) => `webpilot · ${d.name || '본인'} · ${d.month} 근태 리포트`, resultCap: '✓ 근태 리포트' },
-  { id: 'bizplay', icon: '/icons/bizplay.png', label: '비즈플레이', sub: '카드 지출명세서 · 미결의',
-    brand: '· 비즈플레이 카드 조종석', desc: '로그인하면 <b>비즈플레이</b>에 접속해 <b>미결의(대기)</b> 카드 지출을 뽑아옵니다.',
-    endpoint: '/api/bizplay/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
-    resultUrl: (d) => `webpilot · 비즈플레이 미결의 · ${d.month}`, resultCap: '✓ 미결의 리포트' },
-  { id: 'yagun', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%9A%95%3C/text%3E%3C/svg%3E", label: '야근택시 결의', sub: '타임인아웃 증빙 + 일괄상신',
+  { id: 'correction', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='28'%3E%E2%8F%B0%3C/text%3E%3C/svg%3E", label: '출퇴근 정정 자동화', sub: '누락일 Flow 대조 → 정정신청', services: ['timeinout', 'flow'],
+    brand: '· 출퇴근정정 자동화 (타임인아웃 × Flow)', desc: '타임인아웃 <b>출퇴근 누락일</b>을 가져와 <b>Flow 활동 기록</b>과 대조하고, 출근·퇴근 시간을 입력하면 <b>정정 신청</b>까지 자동으로 해줍니다.',
+    endpoint: '/api/correction/stream', creds: 'timeinout', loginUrl: 'user.timeinout.kr',
+    resultUrl: (d) => `webpilot · 출퇴근정정 · ${d.month}`, resultCap: '✓ 정정 대상' },
+  { id: 'yagun', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%9A%95%3C/text%3E%3C/svg%3E", label: '야근택시 자동결의', sub: '심야택시 → 증빙 일괄상신', services: ['timeinout', 'bizplay'],
     brand: '· 야근택시 일괄 결의 (2개 서비스 연동)', desc: '심야 택시 미결의를 뽑고, <b>타임인아웃 야근 기록</b>을 증빙 이미지로 자동 첨부해 <b>일괄 상신</b>합니다.',
     endpoint: '/api/yagun/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
     resultUrl: (d) => `webpilot · 야근택시 결의 · ${d.month}`, resultCap: '✓ 야근택시 대상' },
+  { id: 'bizplay', icon: '/icons/bizplay.png', label: '법인카드 미결의 조회', sub: '카드 지출 대기 → 규칙 상신', services: ['bizplay'],
+    brand: '· 비즈플레이 카드 조종석', desc: '로그인하면 <b>비즈플레이</b>에 접속해 <b>미결의(대기)</b> 카드 지출을 뽑아옵니다.',
+    endpoint: '/api/bizplay/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
+    resultUrl: (d) => `webpilot · 비즈플레이 미결의 · ${d.month}`, resultCap: '✓ 미결의 리포트' },
 ];
+const SVC = { timeinout: '/icons/timeinout.png', bizplay: '/icons/bizplay.png', flow: '/icons/flow.ico' };
+const SVC_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'flow.team' };
 let activeRecipe = RECIPES[0];
-let defaults = {};
+let accounts = {}; // 계정 저장 상태 (서버에서 마스킹된 상태만)
 
 function renderRecipes() {
   $('recipeList').innerHTML = RECIPES.map(r => `
     <div class="recipe ${r === activeRecipe ? 'on' : ''}" data-id="${r.id}">
-      <div class="ic"><img src="${r.icon}" alt=""></div>
-      <div><div class="rt">${r.label}</div><div class="rs">${r.sub}</div></div><div class="dot"></div>
+      <div style="flex:1;min-width:0">
+        <div class="rt">${r.label}</div><div class="rs">${r.sub}</div>
+        <div class="svc">${(r.services || []).map((s, i) => `${i ? '<span class="plus">+</span>' : ''}<img src="${SVC[s]}" title="${SVC_NAME[s]}" alt="">`).join('')}</div>
+      </div><div class="dot"></div>
     </div>`).join('');
   [...$('recipeList').children].forEach(el => el.addEventListener('click', () => selectRecipe(el.dataset.id)));
 }
@@ -282,8 +334,19 @@ function selectRecipe(id) {
   resetToLogin();
   $('lp-brand').textContent = activeRecipe.brand;
   $('lp-sub').innerHTML = activeRecipe.desc;
-  const c = defaults[activeRecipe.creds] || {};
-  $('tid').value = c.id || ''; $('tpw').value = c.pw || '';
+  updateAcctChip();
+}
+// 이 레시피가 쓰는 서비스 계정 상태 표시
+function updateAcctChip() {
+  const svcs = activeRecipe.services || [];
+  const rows = svcs.map(s => {
+    const a = accounts[s] || {};
+    const detail = s === 'flow' ? (a.saved ? 'API 키 저장됨' : 'API 키 필요') : (a.saved ? esc(a.id || '저장됨') : '로그인 정보 필요');
+    return `<div class="row"><span class="sdot ${a.saved ? 'ok' : 'no'}"></span><b>${esc(SVC_NAME[s])}</b> <span style="color:${a.saved ? '#5a6172' : '#c07d13'}">· ${detail}</span></div>`;
+  }).join('');
+  const missing = svcs.filter(s => !(accounts[s] || {}).saved);
+  $('lp-acct').innerHTML = rows + (missing.length ? `<div style="margin-top:5px;color:#c07d13">→ 상단 <b>승객정보</b> 탭에서 등록하세요</div>` : '');
+  $('go').disabled = missing.length > 0;
 }
 function resetToLogin() {
   slides = []; curData = null; curIdx = 0; dashRendered = false; hasResult = false;
@@ -291,6 +354,7 @@ function resetToLogin() {
   $('dash').style.display = 'none';
   $('p-frame').style.display = 'none'; $('p-frame').removeAttribute('src');
   $('p-scrim').style.display = 'none';
+  $('p-account').style.display = 'none';
   $('p-login').style.display = 'flex';
   $('p-url').textContent = activeRecipe.loginUrl;
   $('p-cap').textContent = '로그인 대기 중';
@@ -353,19 +417,25 @@ async function streamRun(endpoint, body, opts = {}) {
 }
 
 // 조회(미결의 스크래핑 + 규칙 분류)
+// 필요한 계정이 다 저장됐는지 확인 (아니면 계정관리 탭으로)
+function ensureAccounts() {
+  const missing = (activeRecipe.services || []).filter(s => !(accounts[s] || {}).saved);
+  if (missing.length) { $('status').textContent = `⚠ 승객정보에서 ${missing.map(s => SVC_NAME[s]).join(', ')} 등록 필요`; switchTab('accounts'); return false; }
+  return true;
+}
 async function load() {
-  const id = $('tid').value.trim(), pw = $('tpw').value, month = $('month').value;
-  if (!id || !pw) { $('status').textContent = '⚠ 아이디와 비밀번호를 입력하세요.'; return; }
+  if (!ensureAccounts()) return;
+  const month = $('month').value;
   $('status').textContent = '';
-  await streamRun(activeRecipe.endpoint, { mode: 'employee', id, pw, month },
+  await streamRun(activeRecipe.endpoint, { mode: 'employee', month },   // 자격증명은 서버 .env 사용
     { urlText: activeRecipe.loginUrl, capText: '자동화 진행 중 (단계별 실시간 표시)', loadingText: `${activeRecipe.brand} 접속 중…` });
 }
 
 // 실제 상신(결의서 작성 → 용도 → 결재요청 → 결재선 확인) — 규칙 단위
 async function runSubmit(patternId) {
-  const id = $('tid').value.trim(), pw = $('tpw').value, month = $('month').value;
-  if (!id || !pw) { $('status').textContent = '⚠ 아이디와 비밀번호가 필요합니다.'; return; }
-  await streamRun('/api/bizplay/submit/stream', { id, pw, month, patternId },
+  if (!ensureAccounts()) return;
+  const month = $('month').value;
+  await streamRun('/api/bizplay/submit/stream', { month, patternId },
     { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (건별 결재요청)' });
 }
 
@@ -380,6 +450,7 @@ function goToSlide(i) {
   if (!total) return;
   i = Math.max(0, Math.min(total - 1, i));
   curIdx = i;
+  $('p-login').style.display = 'none'; $('p-account').style.display = 'none'; // 결과/스냅샷 볼 땐 로그인·계정화면 숨김
   const vp = document.querySelector('.viewport'); if (vp) vp.scrollTop = 0; // 슬라이드 전환 시 상단부터
   const isResult = hasResult && i === slides.length;
   const dots = [...$('p-dots').querySelectorAll('i')];
@@ -422,10 +493,11 @@ function onResult(d) {
 }
 
 function render(d) {
-  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun']) $(id).style.display = 'none';
+  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-correction']) $(id).style.display = 'none';
   if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
+  else if (d.recipe === 'correction') { $('dash-correction').style.display = 'block'; renderCorrection(d); }
   else { $('dash-timeinout').style.display = 'block'; renderTimeinout(d); }
 }
 function renderBizplay(d) {
@@ -489,6 +561,31 @@ function renderBizplaySubmit(d) {
       + rows(d.skipped, '#c98a00', x => esc(x.reason || '스킵'))
       + rows(d.failed, '#d3455b', x => esc(x.reason || '실패')))
     || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">대상 없음</td></tr>';
+}
+function renderCorrection(d) {
+  lastData = d;
+  const s = d.summary;
+  $('cr-count').textContent = s.count + '건';
+  $('cr-sub').textContent = `${d.month}`;
+  $('cr-evi').textContent = s.submitted + '건';
+  $('cr-noevi').textContent = s.pending + '건';
+  const inCss = 'width:70px;padding:5px 7px;border:1px solid #d6dbe8;border-radius:7px;font-size:13px;text-align:center;font-variant-numeric:tabular-nums';
+  $('cr-list').innerHTML = d.items.map(x => x.submitted
+    ? `<tr style="opacity:.8">
+        <td>${esc(x.date)}${x.dow ? `(${esc(x.dow)})` : ''}<br><span style="color:#12a150;font-size:11px;font-weight:700">신청됨</span></td>
+        <td style="color:#8a93a6">출 ${esc(x.curIn) || '❌'} / 퇴 ${esc(x.curOut) || '❌'}</td>
+        <td style="font-size:11.5px;color:#8a93a6">결재 <b>${esc(x.subStatus)}</b> 중 · 중복신청 방지</td>
+        <td style="color:#12a150;font-weight:600">${esc(x.reqIn)}</td>
+        <td style="color:#12a150;font-weight:600">${esc(x.reqOut)} <span class="badge ok">${esc(x.subStatus)}</span></td></tr>`
+    : `<tr>
+        <td>${esc(x.date)}${x.dow ? `(${esc(x.dow)})` : ''}<br><span style="color:#c07;font-size:11px">${esc(x.status)}</span></td>
+        <td style="color:#8a93a6">출 ${esc(x.curIn) || '❌'} / 퇴 ${esc(x.curOut) || '❌'}</td>
+        <td style="font-size:11.5px;color:#556">${x.flowEvents.length ? x.flowEvents.map(esc).join('<br>') + (x.hasEvidence ? `<br><b style="color:#12a150">→ ${esc(x.flowFirst)}~${esc(x.flowLast)}</b>` : '') : '<span style="color:#c1c6d2">활동 없음 (직접 입력)</span>'}</td>
+        <td><input class="cr-in" data-date="${esc(x.date)}" value="${esc(x.suggestIn)}" placeholder="HH:MM" style="${inCss}"></td>
+        <td><input class="cr-out" data-date="${esc(x.date)}" value="${esc(x.suggestOut)}" placeholder="HH:MM" style="${inCss}"></td></tr>`).join('')
+    || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">정정할 누락일이 없어요 🎉</td></tr>';
+  $('cr-confirm').style.display = 'none';
+  $('cr-go').disabled = !s.pending;
 }
 function renderYagun(d) {
   lastData = d;
@@ -631,10 +728,76 @@ function renderTimeinout(d) {
 
 $('go').addEventListener('click', load);
 $('excludeCorrected').addEventListener('change', () => { if (lastData) render(lastData); });
-for (const id of ['tid', 'tpw']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
-$('pwToggle').addEventListener('click', () => {
-  const el = $('tpw'); el.type = el.type === 'password' ? 'text' : 'password';
-  $('pwToggle').textContent = el.type === 'password' ? '👁' : '🙈';
+
+// ── 사이드 탭 (레시피 / 계정관리) ──
+function switchTab(tab) {
+  document.querySelectorAll('.stab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('pane-recipes').style.display = tab === 'recipes' ? '' : 'none';
+  $('pane-accounts').style.display = tab === 'accounts' ? '' : 'none';
+  if (tab === 'accounts') selectAccount(activeAccount || ACCT_DEFS[0].key);
+  else { // 레시피로: 결과/스냅샷이 있으면 복원, 없으면 실행화면
+    $('p-account').style.display = 'none';
+    if (hasResult || slides.length) goToSlide(curIdx);
+    else resetToLogin();
+  }
+}
+document.querySelectorAll('.stab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+// ── 계정관리: 앱 리스트(사이드) → 우측 저장 화면 ──
+const ACCT_DEFS = [
+  { key: 'timeinout', name: '타임인아웃', icon: SVC.timeinout, url: 'com.timeinout.kr', fields: [['id', '아이디 (이메일)'], ['pw', '비밀번호']] },
+  { key: 'bizplay', name: '비즈플레이', icon: SVC.bizplay, url: 'bizplay.co.kr', fields: [['id', '아이디'], ['pw', '비밀번호']] },
+  { key: 'flow', name: 'flow.team', icon: SVC.flow, url: 'api.flow.team', fields: [['key', 'API 키 (x-flow-api-key)']] },
+];
+let activeAccount = null;
+function renderAccountList() {
+  $('acctList').innerHTML = ACCT_DEFS.map(a => {
+    const st = accounts[a.key] || {};
+    return `<div class="recipe ${a.key === activeAccount ? 'on' : ''}" data-akey="${a.key}" style="align-items:center">
+      <div class="ic" style="width:34px;height:34px"><img src="${a.icon}" alt="" style="width:22px;height:22px"></div>
+      <div style="flex:1;min-width:0"><div class="rt">${esc(a.name)}</div>
+        <div class="rs" style="margin-top:3px"><span class="badge ${st.saved ? 'ok' : 'no'}">${st.saved ? '인증완료' : '미등록'}</span></div></div>
+    </div>`;
+  }).join('');
+  $('acctList').querySelectorAll('[data-akey]').forEach(el => el.addEventListener('click', () => selectAccount(el.dataset.akey)));
+}
+function selectAccount(key) {
+  activeAccount = key;
+  const a = ACCT_DEFS.find(x => x.key === key); if (!a) return;
+  renderAccountList();
+  const st = accounts[key] || {};
+  // 우측 저장 화면
+  $('p-login').style.display = 'none'; $('dash').style.display = 'none';
+  $('p-frame').style.display = 'none'; $('p-scrim').style.display = 'none';
+  $('player').classList.remove('result');
+  $('p-account').style.display = 'flex';
+  $('p-url').textContent = a.url;
+  $('p-cap').textContent = `계정 · ${a.name}`;
+  $('pa-head').innerHTML = `<img src="${a.icon}" alt=""><div><div class="an">${esc(a.name)}</div><div class="ad">${esc(a.url)}</div></div>`;
+  const val = { id: st.id || '', pw: st.pw || '', key: st.key || '' };
+  $('pa-fields').innerHTML = a.fields.map(([f, ph]) => `<label>${f === 'key' ? 'API 키' : f === 'id' ? '아이디' : '비밀번호'}</label>
+      <input data-f="${f}" type="${f === 'pw' || f === 'key' ? 'password' : 'text'}" placeholder="${esc(ph.split(' (')[0])}" value="${esc(val[f] || '')}" style="width:100%;box-sizing:border-box">`).join('');
+  $('pa-save').textContent = st.saved ? '수정' : '등록';
+  $('pa-status').innerHTML = st.saved ? '<span class="badge ok">인증완료</span>' : '<span class="badge no">미등록</span> <span style="color:#8a93a6">입력 후 등록</span>';
+}
+$('pa-save').addEventListener('click', async () => {
+  const a = ACCT_DEFS.find(x => x.key === activeAccount); if (!a) return;
+  const wasSaved = (accounts[a.key] || {}).saved;
+  const body = { service: a.key };
+  $('pa-fields').querySelectorAll('input[data-f]').forEach(i => { const v = i.value.trim(); if (v) body[i.dataset.f] = v; });
+  if (!wasSaved) { // 최초 등록: 필수 입력 확인
+    const need = a.fields.map(([f]) => f).filter(f => !body[f]);
+    if (need.length) { $('pa-status').innerHTML = `<span class="badge no">필요</span> <span style="color:#c07d13">${esc(a.fields.map(([, ph]) => ph.split(' (')[0]).join(', '))} 입력</span>`; return; }
+  }
+  $('pa-save').disabled = true; $('pa-status').innerHTML = '<span style="color:#8a93a6">처리 중…</span>';
+  try {
+    const r = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error();
+    accounts = await (await fetch('/api/accounts')).json();
+    renderAccountList(); updateAcctChip(); selectAccount(activeAccount);  // 등록 → 수정, 인증완료로 갱신
+    $('pa-status').innerHTML = '<span class="badge ok">인증완료</span> <span style="color:#17915a">' + (wasSaved ? '수정됐어요' : '등록됐어요') + '</span>';
+  } catch { $('pa-status').innerHTML = '<span class="badge no" style="background:#fde8e8;color:#d3455b">실패</span> <span style="color:#d3455b">다시 시도</span>'; }
+  finally { $('pa-save').disabled = false; }
 });
 // 스냅샷 앞뒤 탐색 (끝(결과)에서도 이전 프레임으로)
 $('p-prev').addEventListener('click', () => goToSlide(curIdx - 1));
@@ -666,6 +829,26 @@ $('bz-confirm').addEventListener('click', (e) => {
 // 상신 결과 → 다시 조회 (활성 레시피 기준)
 document.addEventListener('click', (e) => { if (e.target.closest('#bs-reload')) load(); });
 
+// 출퇴근정정 자동화: 입력한 출근/퇴근 시각 수집 → 정정 신청 (실제 상신은 폼 딥연구 후)
+const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+$('cr-go').addEventListener('click', () => {
+  const d = lastData; if (!d || d.recipe !== 'correction') return;
+  const rows = [];
+  for (const inp of document.querySelectorAll('#cr-list .cr-in')) {
+    const date = inp.dataset.date;
+    const iv = inp.value.trim();
+    const ov = (document.querySelector(`#cr-list .cr-out[data-date="${date}"]`)?.value || '').trim();
+    if (!iv && !ov) continue;                       // 안 채운 날은 스킵
+    if (!TIME_RE.test(iv) || !TIME_RE.test(ov)) { $('cr-confirm').style.display = 'block'; $('cr-confirm').innerHTML = `<b>⚠ ${esc(date)}</b> 출근/퇴근을 <b>HH:MM</b> 형식으로 둘 다 입력하세요.`; return; }
+    rows.push({ date, in: iv, out: ov });
+  }
+  if (!rows.length) { $('cr-confirm').style.display = 'block'; $('cr-confirm').innerHTML = '정정할 날의 <b>출근·퇴근 시간을 입력</b>하세요.'; return; }
+  $('cr-confirm').style.display = 'block';
+  $('cr-confirm').innerHTML = `<b>✔ 정정 신청 ${rows.length}건</b><br>`
+    + rows.map(r => `&nbsp;&nbsp;· <b>${esc(r.date)}</b> → 출근 <b>${esc(r.in)}</b> · 퇴근 <b>${esc(r.out)}</b>`).join('<br>')
+    + `<br><br><span style="color:#8a6d1a">⚠ 타임인아웃 <b>'출퇴근 정보수정 요청'</b>(실제 결재 상신) 자동화는 폼 딥연구 후 붙일 예정 — 지금은 입력값 <b>확인</b> 단계.</span>`;
+});
+
 // 야근택시 레시피: 🚀 증빙 첨부 + 일괄 상신
 $('yg-go').addEventListener('click', () => {
   const d = lastData; if (!d || d.recipe !== 'yagun') return;
@@ -678,10 +861,11 @@ $('yg-go').addEventListener('click', () => {
   runSubmit('p2');
 });
 
-// 초기화: 레시피 목록 + .env 프리필
+// 초기화: 계정 상태 + 레시피 목록 + 계정관리 폼
 (async () => {
-  try { defaults = await (await fetch('/api/defaults')).json(); } catch {}
+  try { accounts = await (await fetch('/api/accounts')).json(); } catch {}
   renderRecipes();
+  renderAccountList();
   selectRecipe(activeRecipe.id);
 })();
 </script>
