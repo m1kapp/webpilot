@@ -1,7 +1,11 @@
 import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
+
+const __dirname = dirname(fileURLToPath(import.meta.url)); // pkg 스냅샷/일반 실행 양쪽 정적경로
 import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
 import { getCardPending, submitExpenses, getYagunTaxi } from './src/lib/bizplay.mjs';
 import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
@@ -9,7 +13,7 @@ import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mj
 const app = express();
 const PORT = process.env.PORT || 8181;
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static('public'));
+app.use(express.static(join(__dirname, 'public')));
 
 const cache = new Map(); // key(월+이름+id) -> {t, data}, 5분
 
