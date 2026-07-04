@@ -4,7 +4,14 @@ import { chromium } from 'playwright';
 let _browser = null;
 export async function getBrowser() {
   if (_browser && _browser.isConnected()) return _browser;
-  _browser = await chromium.launch({ headless: true });
+  // 시스템 크롬 우선 사용(배포 시 Playwright 크로미움 ~150MB 번들 불필요).
+  // 크롬 미설치 환경은 번들 크로미움으로 fallback.
+  try {
+    _browser = await chromium.launch({ channel: 'chrome', headless: true });
+  } catch (e) {
+    console.error('[browser] 시스템 크롬 없음 → 번들 크로미움 사용:', e.message.split('\n')[0]);
+    _browser = await chromium.launch({ headless: true });
+  }
   return _browser;
 }
 export async function closeBrowser() { if (_browser) { await _browser.close().catch(() => {}); _browser = null; } }
