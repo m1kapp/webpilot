@@ -70,6 +70,23 @@
   .kpi { flex:1; min-width:170px; background:#fff; border:1px solid #eaedf6; border-radius:16px; padding:17px 19px; box-shadow:0 8px 22px -14px rgba(60,58,140,.2); }
   .kpi .l { font-size:12px; color:var(--muted); } .kpi .v { font-size:25px; font-weight:800; letter-spacing:-.5px; margin-top:5px; }
   .ok { color:#12a150; } .bad { color:var(--red); }
+  /* 인페이지 확인 다이얼로그 (네이티브 confirm 대체) */
+  .ui-scrim { position:fixed; inset:0; background:rgba(20,25,46,.44); backdrop-filter:blur(2px); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .ui-scrim.on { display:flex; }
+  .ui-dialog { background:#fff; border-radius:16px; padding:22px 24px; width:min(460px,92vw); box-shadow:0 30px 80px -18px rgba(30,30,70,.5); animation:uiPop .16s ease-out; }
+  @keyframes uiPop { from { transform:translateY(8px) scale(.98); opacity:0 } to { transform:none; opacity:1 } }
+  .ui-dialog h3 { margin:0 0 11px; font-size:16px; }
+  .ui-dialog .ui-body { font-size:13px; color:var(--ink); line-height:1.6; margin-bottom:19px; }
+  .ui-dialog .ui-body .m { color:var(--muted); }
+  .ui-dialog .ui-actions { display:flex; gap:9px; justify-content:flex-end; }
+  .ui-dialog .ui-actions button { padding:9px 18px; border-radius:9px; font-size:13.5px; font-weight:600; border:0; cursor:pointer; }
+  .ui-cancel { background:#eef0f5; color:#556; }
+  .gauge-track { position:relative; height:14px; border-radius:7px; background:#eef0f6; overflow:hidden; margin:9px 0 5px; }
+  .gauge-fill { position:absolute; top:0; left:0; height:100%; background:#3b6fe0; border-radius:7px 0 0 7px; transition:width .3s; }
+  .gauge-fill.over { background:var(--red); }
+  .gauge-headroom { position:absolute; top:0; height:100%;
+    background:repeating-linear-gradient(45deg, rgba(59,111,224,.28), rgba(59,111,224,.28) 4px, rgba(59,111,224,.09) 4px, rgba(59,111,224,.09) 8px); }
+  .gauge-limit { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--red); }
   #status { color:var(--muted); font-size:14px; padding:8px 0; }
   h2 { font-size:16px; margin:0 0 14px; }
   input[type=password], input[type=text], #name, #month { min-width:150px; }
@@ -138,7 +155,7 @@
 </head>
 <body>
 <header>
-  <h1>🛫 webpilot</h1><span class="tag">무 API 서비스 자동 조종석 · 로그인→수집→분석을 브라우저가 대신</span>
+  <h1>🛫 webpilot</h1><span class="tag">API 없는 서비스 자동 조종석 · 로그인→수집→분석을 브라우저가 대신해요</span>
 </header>
 <div class="shell">
   <aside class="sidebar">
@@ -165,9 +182,8 @@
           <div class="brand">🛫 webpilot <span id="lp-brand">· 타임인아웃 근태 조종석</span></div>
           <div class="sub" id="lp-sub">저장된 계정으로 브라우저가 대신 접속해 데이터를 수집·분석합니다.</div>
           <div id="lp-acct" class="acct-chip"></div>
-          <label>월</label>
-          <input id="month" type="month" value="2026-06" style="width:100%" />
-          <button id="go">▶ 실행 (저장된 계정으로)</button>
+          <input id="month" type="month" style="width:100%" />
+          <button id="go">🛫 Take off</button>
           <div id="status"></div>
         </div>
       </div>
@@ -195,8 +211,13 @@
     </div>
 
     <div class="kpis" id="kpis">
-      <div class="kpi"><div class="l">총 근로시간 (찐)</div><div class="v" id="k-total">-</div><div class="l" id="k-total-sub"></div></div>
-      <div class="kpi"><div class="l">초과근무 합계 (평일 8h 초과)</div><div class="v" id="k-ot">-</div><div class="l" id="k-limit"></div></div>
+      <div class="kpi">
+        <div class="l">초과근무 합계 (평일 8h 초과) · 목표 52h</div>
+        <div class="v" id="k-ot">-</div>
+        <div class="gauge-track"><div class="gauge-fill" id="ot-fill"></div><div class="gauge-headroom" id="ot-headroom"></div><div class="gauge-limit" id="ot-limit-line"></div></div>
+        <div class="l" id="k-limit"></div>
+        <div class="l" id="k-pace" style="margin-top:2px"></div>
+      </div>
       <div class="kpi"><div class="l">휴일 근무 시간 (예외)</div><div class="v" id="k-hol">-</div><div class="l" id="k-hol-sub"></div></div>
     </div>
 
@@ -212,17 +233,14 @@
 
       <div id="dash-bizplay" style="display:none">
         <div class="kpis" style="margin-bottom:16px">
-          <div class="kpi"><div class="l">미결의(대기)</div><div class="v bad" id="bz-count">-</div><div class="l" id="bz-sub"></div></div>
-          <div class="kpi" style="border-color:#22c55e"><div class="l">규칙 매칭</div><div class="v ok" id="bz-matched">-</div><div class="l">자동 결의 가능</div></div>
-          <div class="kpi"><div class="l">미분류 (직접 판단)</div><div class="v" id="bz-new">-</div><div class="l">규칙에 안 걸림</div></div>
+          <div class="kpi"><div class="l">미결의 (타겟월+직전3개월)</div><div class="v bad" id="bz-count">-</div><div class="l" id="bz-sub"></div></div>
+          <div class="kpi" style="border-color:#8b5cf6"><div class="l">발굴된 반복 패턴</div><div class="v" id="bz-new">-</div><div class="l" id="bz-disc-sub">여러 달 반복</div></div>
         </div>
         <div class="card">
-          <h2>규칙별 일괄 결의 <span style="font-size:12px;font-weight:500;color:var(--muted)">— 각 규칙 단위로 올리기</span></h2>
-          <div id="bz-patterns"></div>
+          <h2>🔍 발굴된 반복 패턴 <span style="font-size:12px;font-weight:500;color:var(--muted)">— <b>직전 3개월+타겟월</b> 걸쳐 <b>여러 달 반복</b>되는 사용처. 자동결의 설계안 확인 후 <b>목적지</b>로 등록</span></h2>
+          <div id="bz-discovered"></div>
           <div id="bz-confirm" style="display:none;margin-top:12px;padding:12px 14px;background:#f0faf3;border:1px solid #cfe9d6;border-radius:12px;font-size:13px;color:#1c6b3a"></div>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin:2px 4px 8px"><b style="color:#12a150">초록 용도</b>=과거와 동일하게 자동, <b style="color:#aab1bf">신규</b>=직접 판단 · 빨간 마이너스=취소분 · <b>카드별로 분리</b></div>
-        <div id="bz-cards"></div>
       </div>
       <div id="dash-bizplay-submit" style="display:none">
         <h2 id="bs-head" style="margin:0 0 14px">상신 결과</h2>
@@ -260,6 +278,43 @@
           <p style="color:var(--muted);font-size:12px;margin:12px 0 0"><b>야근/휴일근무 기록이 있는 건만 상신</b>(증빙 이미지 자동첨부) · 용도 <b>야근교통비</b> · 결재선 <b>법인카드 지출결의서</b> · 기록 없는 건은 증빙 불가로 <b>제외</b>.</p>
         </div>
       </div>
+      <div id="dash-yasik" style="display:none">
+        <div class="kpis" style="margin-bottom:16px">
+          <div class="kpi"><div class="l">혼자 식대 (13,000 이내)</div><div class="v" id="ys-count">-</div><div class="l" id="ys-sub"></div></div>
+          <div class="kpi" style="border-color:#22c55e"><div class="l">상신 대상 (인정)</div><div class="v ok" id="ys-eli">-</div><div class="l">저녁=야근 · 조식=출근&lt;8</div></div>
+          <div class="kpi"><div class="l">제외</div><div class="v" id="ys-excl">-</div><div class="l">근태 미충족 · 점심 등</div></div>
+        </div>
+        <div class="card">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">야근식비 일괄 결의
+            <button id="ys-go" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🍱 인정건 일괄 상신</button>
+          </h2>
+          <div class="bz-wrap">
+            <table class="bz-table">
+              <thead><tr><th>식비 사용</th><th style="text-align:right">금액</th><th>식사</th><th>근태(출근/야근)</th><th>판정</th></tr></thead>
+              <tbody id="ys-list"></tbody>
+            </table>
+          </div>
+          <div id="ys-confirm" style="display:none;margin-top:12px;padding:12px 14px;background:#fdf1f1;border:1px solid #f2d0d0;border-radius:12px;font-size:13px;color:#8a3d3d"></div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0"><b>혼자 먹은 1인 식대만</b> · <b>저녁</b>(17~22시)은 그날 야근, <b>조식</b>(05~09시)은 그날 출근&lt;08:00 인정 · 용도 <b>야근식비</b> · 결재선 <b>법인카드 지출결의서</b> · 미충족·점심은 <b>제외</b>.</p>
+        </div>
+      </div>
+      <div id="dash-pattern" style="display:none">
+        <div class="kpis" style="margin-bottom:16px">
+          <div class="kpi"><div class="l" id="pt-title">등록 목적지</div><div class="v" id="pt-count">-</div><div class="l" id="pt-sub"></div></div>
+        </div>
+        <div class="card">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span id="pt-head">등록 목적지 일괄 결의</span>
+            <button id="pt-go" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🚀 일괄 상신</button>
+          </h2>
+          <div class="bz-wrap">
+            <table class="bz-table">
+              <thead><tr><th>사용일시</th><th>사용처</th><th>카드</th><th style="text-align:right">금액</th></tr></thead>
+              <tbody id="pt-list"></tbody>
+            </table>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">등록한 <b>사용처 키워드</b>에 걸린 대기건을 하나의 결의서로 묶어 상신 · 결재선 <b>법인카드 지출결의서</b> · 해외는 3일 경과분만.</p>
+        </div>
+      </div>
       <div id="dash-correction" style="display:none">
         <div class="kpis" style="margin-bottom:16px">
           <div class="kpi"><div class="l">누락일</div><div class="v bad" id="cr-count">-</div><div class="l" id="cr-sub"></div></div>
@@ -292,10 +347,43 @@
   </main>
 </div><!-- shell -->
 
+<!-- 인페이지 확인 다이얼로그 -->
+<div class="ui-scrim" id="uiScrim">
+  <div class="ui-dialog" role="dialog" aria-modal="true">
+    <h3 id="uiTitle">확인</h3>
+    <div class="ui-body" id="uiBody"></div>
+    <div class="ui-actions">
+      <button class="ui-cancel" id="uiCancel">취소</button>
+      <button id="uiOk">진행</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let clock, lastData = null;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+
+// 인페이지 확인 다이얼로그 — Promise<boolean>. 네이티브 confirm() 대체(내부 렌더).
+function uiConfirm({ title = '확인', body = '', ok = '진행', cancel = '취소', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const scrim = $('uiScrim'), okBtn = $('uiOk'), cancelBtn = $('uiCancel');
+    $('uiTitle').textContent = title;
+    $('uiBody').innerHTML = body;
+    okBtn.textContent = ok; cancelBtn.textContent = cancel;
+    okBtn.style.cssText = 'color:#fff;' + (danger ? 'background:linear-gradient(135deg,#e6484d,#c2334a)' : 'background:var(--blue)');
+    scrim.classList.add('on');
+    const done = (v) => { scrim.classList.remove('on'); okBtn.onclick = cancelBtn.onclick = scrim.onclick = null; document.removeEventListener('keydown', onKey); resolve(v); };
+    okBtn.onclick = () => done(true);
+    cancelBtn.onclick = () => done(false);
+    scrim.onclick = (e) => { if (e.target === scrim) done(false); };
+    const onKey = (e) => { if (e.key === 'Escape') done(false); else if (e.key === 'Enter') done(true); };
+    document.addEventListener('keydown', onKey);
+    okBtn.focus();
+  });
+}
+
+{ const n = new Date(); $('month').value = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`; }
 
 // ── 자동화 레시피 정의 ──
 const RECIPES = [
@@ -311,33 +399,68 @@ const RECIPES = [
     brand: '· 야근택시 일괄 결의 (2개 서비스 연동)', desc: '심야 택시 미결의를 뽑고, <b>타임인아웃 야근 기록</b>을 증빙 이미지로 자동 첨부해 <b>일괄 상신</b>합니다.',
     endpoint: '/api/yagun/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
     resultUrl: (d) => `webpilot · 야근택시 결의 · ${d.month}`, resultCap: '✓ 야근택시 대상' },
-  { id: 'bizplay', icon: '/icons/bizplay.png', label: '법인카드 미결의 조회', sub: '카드 지출 대기 → 규칙 상신', services: ['bizplay'],
-    brand: '· 비즈플레이 카드 조종석', desc: '로그인하면 <b>비즈플레이</b>에 접속해 <b>미결의(대기)</b> 카드 지출을 뽑아옵니다.',
+  { id: 'yasik', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%8D%B1%3C/text%3E%3C/svg%3E", label: '야근식비 자동결의', sub: '혼자 식대 → 야근/조식 인정', services: ['timeinout', 'bizplay'],
+    brand: '· 야근식비 일괄 결의 (2개 서비스 연동)', desc: '혼자 먹은 <b>1인 식대(13,000 이내)</b>를 뽑고, <b>타임인아웃 근태</b>로 저녁=그날 야근 / 조식=출근<08:00 인정건만 <b>일괄 상신</b>합니다.',
+    endpoint: '/api/yasik/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
+    resultUrl: (d) => `webpilot · 야근식비 결의 · ${d.month}`, resultCap: '✓ 야근식비 대상' },
+  { id: 'bizplay', icon: '/icons/bizplay.png', label: '결의 패턴 찾기', sub: '미결의 반복 사용처 → 목적지 등록', services: ['bizplay'],
+    brand: '· 결의 패턴 찾기', desc: '<b>미결의(대기)</b>에서 <b>반복되는 결의 패턴</b>(사용처)을 발굴해, 원하는 패턴을 <b>웹파일럿 목적지</b>로 등록합니다. (이 화면은 등록 전용 — 상신은 등록된 목적지에서)',
     endpoint: '/api/bizplay/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
-    resultUrl: (d) => `webpilot · 비즈플레이 미결의 · ${d.month}`, resultCap: '✓ 미결의 리포트' },
+    resultUrl: (d) => `webpilot · 결의 패턴 찾기 · ${d.month}`, resultCap: '✓ 발굴된 결의 패턴' },
 ];
 const SVC = { timeinout: '/icons/timeinout.png', bizplay: '/icons/bizplay.png', flow: '/icons/flow.ico' };
 const SVC_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'flow.team' };
 let activeRecipe = RECIPES[0];
 let accounts = {}; // 계정 저장 상태 (서버에서 마스킹된 상태만)
 
+let userRecipes = [];   // 등록된 목적지(사용자 규칙)에서 동적 생성
+const allRecipes = () => [...RECIPES, ...userRecipes];
 function renderRecipes() {
-  $('recipeList').innerHTML = RECIPES.map(r => `
+  $('recipeList').innerHTML = allRecipes().map(r => `
     <div class="recipe ${r === activeRecipe ? 'on' : ''}" data-id="${r.id}">
       <div style="flex:1;min-width:0">
-        <div class="rt">${r.label}</div><div class="rs">${r.sub}</div>
+        <div class="rt">${esc(r.label)}${r.userRule ? ' <span style="font-size:10px;color:#8b5cf6;font-weight:700;vertical-align:middle">등록</span>' : ''}</div><div class="rs">${esc(r.sub)}</div>
         <div class="svc">${(r.services || []).map((s, i) => `${i ? '<span class="plus">+</span>' : ''}<img src="${SVC[s]}" title="${SVC_NAME[s]}" alt="">`).join('')}</div>
-      </div><div class="dot"></div>
+      </div>${r.userRule ? `<button class="recipe-del" data-del="${r.id}" title="목적지 삭제" style="background:none;border:0;color:#c1c6d2;font-size:16px;cursor:pointer;padding:2px 6px">✕</button>` : '<div class="dot"></div>'}
     </div>`).join('');
-  [...$('recipeList').children].forEach(el => el.addEventListener('click', () => selectRecipe(el.dataset.id)));
+  [...$('recipeList').children].forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('.recipe-del')) { e.stopPropagation(); deleteRecipe(e.target.closest('.recipe-del').dataset.del); return; }
+    selectRecipe(el.dataset.id);
+  }));
 }
 function selectRecipe(id) {
-  activeRecipe = RECIPES.find(r => r.id === id) || RECIPES[0];
+  activeRecipe = allRecipes().find(r => r.id === id) || RECIPES[0];
   renderRecipes();
   resetToLogin();
   $('lp-brand').textContent = activeRecipe.brand;
   $('lp-sub').innerHTML = activeRecipe.desc;
   updateAcctChip();
+}
+// 등록된 목적지(사용자 규칙) → 동적 레시피
+async function loadUserRecipes() {
+  try {
+    const j = await (await fetch('/api/rules')).json();
+    userRecipes = (j.rules || []).map(u => {
+      const kws = (u.keywords && u.keywords.length ? u.keywords : [u.keyword]).filter(Boolean);
+      const name = u.label || `${kws[0]} 자동결의`;
+      return {
+        id: u.id, keywords: kws, use: u.use, label: name, sub: `${kws.length > 1 ? kws.length + '개 사용처' : kws[0]} → ${u.use}`, services: ['bizplay'],
+        brand: `· ${name} (등록 목적지)`,
+        desc: `사용처 <b>${kws.map(esc).join(', ')}</b> 미결의를 모아 용도 <b>${esc(u.use)}</b>로 <b>일괄 상신</b>합니다.`,
+        endpoint: '/api/pattern/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr', patternId: u.id, userRule: true,
+        resultUrl: (d) => `webpilot · ${name} · ${d.month}`, resultCap: '✓ ' + name,
+      };
+    });
+  } catch { userRecipes = []; }
+  renderRecipes();
+}
+async function deleteRecipe(id) {
+  const r = allRecipes().find(x => x.id === id);
+  if (!(await uiConfirm({ title: '목적지 삭제', ok: '삭제', danger: true, body: `등록 목적지 <b>${esc(r ? r.label : id)}</b>를 삭제합니다.<br><span class="m">미결의 자동분류 규칙도 함께 사라져요. (상신된 건은 영향 없음)</span>` }))) return;
+  await fetch('/api/rules/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+  if (activeRecipe.id === id) activeRecipe = RECIPES[0];
+  await loadUserRecipes();
+  selectRecipe(activeRecipe.id);
 }
 // 이 레시피가 쓰는 서비스 계정 상태 표시
 function updateAcctChip() {
@@ -430,7 +553,7 @@ async function load() {
   if (!ensureAccounts()) return;
   const month = $('month').value;
   $('status').textContent = '';
-  await streamRun(activeRecipe.endpoint, { mode: 'employee', month },   // 자격증명은 서버 .env 사용
+  await streamRun(activeRecipe.endpoint, { mode: 'employee', month, patternId: activeRecipe.patternId },   // 자격증명은 서버 .env 사용
     { urlText: activeRecipe.loginUrl, capText: '자동화 진행 중 (단계별 실시간 표시)', loadingText: `${activeRecipe.brand} 접속 중…` });
 }
 
@@ -439,7 +562,7 @@ async function runSubmit(patternId, yagunMode) {
   if (!ensureAccounts()) return;
   const month = $('month').value;
   await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode },
-    { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (건별 결재요청)' });
+    { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (대기건 묶어 결재 1건)' });
 }
 
 // 스냅샷을 사파리 프레임에서 착착 재생 → 마지막에 페이드아웃
@@ -496,10 +619,12 @@ function onResult(d) {
 }
 
 function render(d) {
-  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-correction']) $(id).style.display = 'none';
+  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction']) $(id).style.display = 'none';
   if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
+  else if (d.recipe === 'yasik') { $('dash-yasik').style.display = 'block'; renderYasik(d); }
+  else if (d.recipe === 'pattern') { $('dash-pattern').style.display = 'block'; renderPattern(d); }
   else if (d.recipe === 'correction') { $('dash-correction').style.display = 'block'; renderCorrection(d); }
   else if (d.recipe === 'correction-submit') { $('dash-correction').style.display = 'block'; renderCorrectionSubmit(d); }
   else { $('dash-timeinout').style.display = 'block'; renderTimeinout(d); }
@@ -523,44 +648,28 @@ function renderBizplay(d) {
   lastData = d;
   const s = d.summary;
   $('bz-count').textContent = s.count + '건';
-  $('bz-sub').textContent = `${s.totalText} · ${d.month}`;
-  $('bz-matched').textContent = s.matched + '건';
-  $('bz-new').textContent = s.newCount + '건';
-  // 규칙별 패턴 (각 올리기 버튼)
-  $('bz-patterns').innerHTML = (d.patterns || []).length ? (d.patterns.map(p => `
-    <div style="display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid #f0f2f8">
-      <span style="background:#e7f6ec;color:#12a150;font-weight:700;font-size:12px;padding:4px 10px;border-radius:8px">${esc(p.use)}</span>
-      <span style="color:var(--muted);font-size:12.5px">${esc(p.label)}${p.by ? ` · <b>${esc(p.by)}</b> 명의` : ''}</span>
-      <span style="margin-left:auto;font-weight:700">${p.count}건</span>
-      <span style="width:105px;text-align:right;font-variant-numeric:tabular-nums">${p.total.toLocaleString('en-US')}원</span>
-      <button class="bz-up" data-pat="${p.id}" style="background:var(--grad);padding:8px 14px;font-size:12.5px">올리기 ▶</button>
-    </div>`).join('')) : '<div style="color:var(--muted);padding:8px 4px">규칙에 걸린 건이 없어요</div>';
-  // 카드별로 분리된 목록
-  const byCard = {};
-  for (const x of d.items) (byCard[x.card] ||= []).push(x);
-  $('bz-cards').innerHTML = Object.entries(byCard)
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([card, list]) => {
-      const total = list.reduce((a, x) => a + x.amount, 0);
-      const matched = list.filter(x => x.matched).length;
-      const uses = [...new Set(list.filter(x => x.matched).map(x => x.use))];
-      const rows = list.map(x => `<tr>
-        <td>${esc(x.date)}</td><td>${esc(x.merchant)}</td>
-        <td>${x.matched ? `<span style="color:#12a150;font-weight:600">${esc(x.use)}</span>` : '<span style="color:#aab1bf">미분류</span>'}</td>
-        <td class="amt ${x.amount < 0 ? 'neg' : ''}">${x.amount.toLocaleString('en-US')}</td></tr>`).join('');
-      return `<div class="card">
-        <h2 style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <span style="background:linear-gradient(135deg,#5b6ef5,#8b5cf6);color:#fff;font-size:13px;font-weight:700;padding:5px 12px;border-radius:9px;letter-spacing:.3px">💳 ${esc(card)}</span>
-          <span style="font-size:13px;font-weight:500;color:var(--muted)">${list.length}건 · ${total.toLocaleString('en-US')}원 · 자동매칭 ${matched}건${uses.length ? ` (${uses.map(esc).join(', ')})` : ''}</span>
-        </h2>
-        <div class="bz-wrap" style="max-height:300px">
-          <table class="bz-table">
-            <thead><tr><th>사용일시</th><th>사용처</th><th>과거 매칭(용도)</th><th style="text-align:right">금액</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </div>`;
-    }).join('') || '<div class="card" style="text-align:center;color:var(--muted);padding:24px">미결의 건이 없어요 🎉</div>';
+  $('bz-sub').textContent = d.span ? `${s.totalText} · ${d.span.s}~${d.span.e}` : `${s.totalText} · ${d.month}`;
+  $('bz-new').textContent = (d.bundles || []).length + '개';
+  $('bz-disc-sub').textContent = `용도별 묶음 · 제외 ${s.skipped || 0}종`;
+  // 번들: 같은 용도(예산계정) 사용처를 하나의 목적지로 묶어 제안
+  $('bz-discovered').innerHTML = (d.bundles || []).length ? (d.bundles.map((b, i) => {
+    const chips = b.merchants.map(m => `<span style="background:#eef0fe;color:#5b6ef5;font-weight:600;font-size:11.5px;padding:2px 8px;border-radius:6px">${esc(m.merchant)}</span>`).join(' ');
+    return `
+    <div style="padding:14px 4px;border-bottom:1px solid #f0f2f8">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="background:#e7f6ec;color:#12a150;font-weight:800;font-size:13px;padding:5px 12px;border-radius:8px">${esc(b.use || '용도 미지정')}</span>
+        ${b.budget ? `<span style="color:var(--muted);font-size:12px">예산부서 <b>${esc(b.budget)}</b></span>` : ''}
+        <span style="color:#8b5cf6;font-size:12px;font-weight:700">${b.merchantCount}개 사용처 · ${b.monthCount}개월</span>
+        <span style="margin-left:auto;font-weight:700">${b.count}건</span>
+        <span style="width:110px;text-align:right;font-variant-numeric:tabular-nums">${b.total.toLocaleString('en-US')}원</span>
+        <button class="bz-reg" data-b="${i}" style="background:var(--grad);padding:8px 14px;font-size:12.5px">🎯 목적지 등록</button>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px">${chips}</div>
+      <div style="margin-top:7px;font-size:12px;color:var(--muted);line-height:1.5">
+        <b style="color:#5b6ef5">자동결의 설계안</b> — 위 <b>${b.merchantCount}개 사용처</b> 미결의를 <b>하나의 결의서로 최대한 묶어</b> 용도 <b style="color:#12a150">${esc(b.use || '[지정]')}</b>${b.budget ? ` · <b>${esc(b.budget)}</b>` : ''}로 결재요청 · 결재선 <b>법인카드 지출결의서</b>
+      </div>
+    </div>`; }).join('')) : '<div style="color:var(--muted);padding:8px 4px">묶어서 추천할 반복 패턴이 없어요 (전용 목적지·인원변동·단발 제외)</div>';
+  [...$('bz-discovered').querySelectorAll('.bz-reg')].forEach(btn => btn.addEventListener('click', () => registerBundle(d.bundles[+btn.dataset.b])));
   $('bz-confirm').style.display = 'none';
 }
 function renderBizplaySubmit(d) {
@@ -568,7 +677,7 @@ function renderBizplaySubmit(d) {
   const s = d.summary;
   $('bs-head').textContent = `'${esc(d.use)}' 상신 결과`;
   $('bs-kpi').innerHTML = `
-    <div class="kpi" style="border-color:#22c55e"><div class="l">상신 완료</div><div class="v ok">${s.submitted}건</div><div class="l">${s.amount.toLocaleString('en-US')}원</div></div>
+    <div class="kpi" style="border-color:#22c55e"><div class="l">상신 완료</div><div class="v ok">${s.submitted}건</div><div class="l">결재 ${s.approvals ?? (s.submitted ? 1 : 0)}건 · ${s.amount.toLocaleString('en-US')}원</div></div>
     <div class="kpi"><div class="l">스킵 (해외 등)</div><div class="v">${s.skipped}건</div><div class="l">청구내역 도착 후</div></div>
     <div class="kpi"><div class="l">실패</div><div class="v ${s.failed ? 'bad' : ''}">${s.failed}건</div><div class="l">확인 필요</div></div>`;
   const rows = (arr, color, tag) => arr.map(x => `<tr>
@@ -634,9 +743,38 @@ function renderYagun(d) {
   $('yg-go-pending').style.display = pc ? 'inline-block' : 'none';
   $('yg-pc').textContent = pc;
 }
-function renderTimeinout(d) {
+function renderYasik(d) {
   lastData = d;
   const s = d.summary;
+  $('ys-count').textContent = s.count + '건';
+  $('ys-sub').innerHTML = `${esc(s.totalText)} · ${esc(d.month)}`;
+  $('ys-eli').textContent = s.eligible + '건';
+  $('ys-excl').textContent = s.excluded + '건';
+  $('ys-list').innerHTML = d.items.map(x => `<tr>
+    <td>${esc(x.date)}<br><span style="color:#8a93a6;font-size:11px">${esc(x.merchant)}</span></td>
+    <td class="amt ${x.amount < 0 ? 'neg' : ''}">${x.amount.toLocaleString('en-US')}</td>
+    <td>${esc(x.meal)}${x.dow ? ` <span style="color:#8a93a6;font-size:11px">(${esc(x.dow)})</span>` : ''}</td>
+    <td style="font-size:12px">${x.meal === '조식' ? (x.inText ? `출근 ${esc(x.inText)}` : '<span style="color:#c1c6d2">출근기록 없음</span>') : (x.otText ? `<span style="color:#e0484d">야근 ${esc(x.otText)}</span>` : '<span style="color:#c1c6d2">야근 없음</span>')}</td>
+    <td>${x.eligible ? '<span style="color:#12a150;font-weight:700">✓ 인정</span>' : `<span style="color:#aab1bf;font-weight:600">제외</span><br><span style="color:#aab1bf;font-size:10.5px">${esc(x.why)}</span>`}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">혼자 먹은 식대 미결의가 없어요 🎉</td></tr>';
+  $('ys-confirm').style.display = 'none';
+  $('ys-go').disabled = !s.eligible;
+}
+function renderPattern(d) {
+  lastData = d;
+  const s = d.summary;
+  $('pt-title').textContent = d.ruleLabel || '등록 목적지';
+  $('pt-head').textContent = `${d.ruleLabel || '등록 목적지'} 일괄 결의`;
+  $('pt-count').textContent = s.count + '건';
+  $('pt-sub').innerHTML = `${esc(s.totalText)} · ${esc(d.month)} · 용도 <b>${esc(d.use)}</b>`;
+  $('pt-list').innerHTML = d.items.map(x => `<tr>
+    <td>${esc(x.date)}</td><td>${esc(x.merchant)}</td><td style="color:#8a93a6;font-size:12px">${esc(x.card)}</td>
+    <td class="amt ${x.amount < 0 ? 'neg' : ''}">${x.amount.toLocaleString('en-US')}</td></tr>`).join('')
+    || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">이 목적지에 걸린 대기건이 없어요 🎉</td></tr>';
+  $('pt-go').disabled = !s.count;
+}
+function renderTimeinout(d) {
+  lastData = d;
   $('kpis').style.display = 'flex';
   $('clockCard').style.display = 'block';
 
@@ -644,23 +782,49 @@ function renderTimeinout(d) {
   // → 각 KPI가 그래프에 보이는 색 영역의 합과 정확히 일치
   const exclude = $('excludeCorrected').checked;
   const missDays = d.days.filter(x => x.missing);
-  let total = 0, ot = 0, hol = 0; const corrDays = [];
+  let ot = 0, hol = 0; const corrDays = [];
   for (const x of d.days) {
     if (x.missing) continue;                                     // 누락/의심 → 모든 합계 제외
     if (x.corrected) { corrDays.push(x); if (exclude) continue; } // 정정 제외 ON → 합계 제외
-    total += x.workMin;
     hol += x.holMin;
     ot += x.otMin;
   }
   const over52 = ot > 52 * 60;
-  $('k-total').textContent = fmtMin(total);
-  $('k-total-sub').textContent = `raw ${s.rawTotalText} · 누락/의심 ${missDays.length}일 제외`;
   $('k-ot').textContent = fmtMin(ot);
   const lim = $('k-limit');
   lim.textContent = over52 ? `🔴 월 52h 초과 (${(ot/60).toFixed(1)}h)` : `✅ 52h 이내 (${(ot/60).toFixed(1)}h)`;
   lim.className = 'l ' + (over52 ? 'bad' : 'ok');
   $('k-hol').textContent = fmtMin(hol);
   $('k-hol-sub').textContent = '휴일·대체공휴일 근무 (초과 합계와 별도 집계)';
+
+  // 게이지: 0~52h 트랙, 실선=확정 초과근무, 빗금(반투명)=아직 안 채워진(=미기록) 남은 평일 몫
+  const [gy, gm] = d.month.split('-').map(Number);
+  const now = new Date();
+  const ymNow = now.getFullYear() * 100 + (now.getMonth() + 1);
+  const ymThis = gy * 100 + gm;
+  const remainDays = d.days.filter(x => !x.holiday && (ymThis > ymNow || (ymThis === ymNow && x.day >= now.getDate()))).length;
+  const limitMin = 52 * 60;
+  const scaleMax = Math.max(limitMin, ot) * 1.12;
+  const fillPct = Math.min(100, ot / scaleMax * 100);
+  const headStartPct = fillPct;
+  const headWidthPct = ot < limitMin ? (limitMin - ot) / scaleMax * 100 : 0;
+  $('ot-fill').style.width = fillPct + '%';
+  $('ot-fill').className = 'gauge-fill' + (over52 ? ' over' : '');
+  $('ot-headroom').style.left = headStartPct + '%';
+  $('ot-headroom').style.width = headWidthPct + '%';
+  $('ot-limit-line').style.left = (limitMin / scaleMax * 100) + '%';
+  const remainMin = Math.max(0, limitMin - ot);
+  const pace = $('k-pace');
+  if (over52) {
+    pace.textContent = `🔴 52h 초과분 ${fmtMin(ot - limitMin)} · 남은 평일 ${remainDays}일은 초과근무 자제`;
+    pace.className = 'l bad';
+  } else if (remainDays > 0) {
+    pace.textContent = `평일 ${remainDays}일 남음 · 평균 ${fmtMin(Math.round(remainMin / remainDays))}/일 야근하면 52h 채움`;
+    pace.className = 'l';
+  } else {
+    pace.textContent = remainMin > 0 ? `근무일 종료 · ${fmtMin(remainMin)} 미달성` : '52h 정확히 달성';
+    pace.className = 'l';
+  }
   $('corr-note').textContent = [
     corrDays.length ? `정정 ${corrDays.length}일 [${corrDays.map(x => `${x.day}일 ${x.correctReason}`).join(', ')}] ${exclude ? '→ 초과합계 제외' : '→ 포함'}` : '정정 없음',
     missDays.length ? `· 기록누락 ${missDays.length}일 [${missDays.map(x => `${x.day}일`).join(', ')}]` : '',
@@ -836,28 +1000,62 @@ $('p-dots').addEventListener('click', (e) => { const idx = [...$('p-dots').query
 // 다시하기 → 로그인 화면으로 (아이디/비번/월 유지, 다시 조회 가능)
 $('p-reload').addEventListener('click', resetToLogin);
 
-// 규칙별 '올리기' → 컨펌(무엇이 어떻게 올라가는지) + 실제 상신 버튼
-$('bz-patterns').addEventListener('click', (e) => {
-  const btn = e.target.closest('.bz-up'); if (!btn) return;
-  const p = (lastData?.patterns || []).find(x => x.id === btn.dataset.pat); if (!p) return;
-  $('bz-confirm').style.display = 'block';
-  $('bz-confirm').innerHTML = `<b>✔ [${esc(p.use)}] ${p.count}건 · ${p.total.toLocaleString('en-US')}원</b> 을 건별 결의서로 상신합니다${p.dept ? ` · ${esc(p.dept)}` : ''}${p.by ? ` · 명의 <b>${esc(p.by)}</b>` : ''}
-    <br><span style="color:#8a6d1a">⚠ <b>실제 결재 상신</b>이에요 — <b>법인카드 지출결의서</b> 결재선(임성훈 CFO→피플팀→경영관리팀)으로 결재요청됩니다. 해외는 <b>오늘 기준 3일 경과분만</b> 상신.</span>
-    <div style="margin-top:10px;display:flex;gap:8px">
-      <button class="bz-go" data-pat="${p.id}" style="background:linear-gradient(135deg,#e6484d,#c2334a);padding:9px 16px;font-size:13px">🚀 실제 상신 실행 (${p.count}건)</button>
-      <button class="bz-cancel" style="background:#eef0f5;color:#556;padding:9px 16px;font-size:13px">취소</button>
-    </div>`;
-});
-// 실제 상신 실행 / 취소
-$('bz-confirm').addEventListener('click', (e) => {
-  if (e.target.closest('.bz-cancel')) { $('bz-confirm').style.display = 'none'; return; }
-  const go = e.target.closest('.bz-go'); if (!go) return;
-  const p = (lastData?.patterns || []).find(x => x.id === go.dataset.pat); if (!p) return;
-  if (!confirm(`[${p.use}] ${p.count}건을 실제로 결재 상신합니다.\n결재선: 법인카드 지출결의서 (임성훈 CFO→피플팀→경영관리팀)\n해외는 3일 경과분만 상신.\n\n진행할까요?`)) return;
-  runSubmit(p.id);
-});
+// 번들(같은 용도 사용처 묶음) → 하나의 목적지로 등록
+async function registerBundle(b) {
+  if (!b) return;
+  const chips = b.merchants.map(m => `<span style="background:#eef0fe;color:#5b6ef5;font-weight:600;font-size:11.5px;padding:2px 8px;border-radius:6px">${esc(m.merchant)}</span>`).join(' ');
+  const ok = await uiConfirm({
+    title: `목적지 등록 · ${b.use || '용도 지정'}`, ok: '등록',
+    body: `<div style="display:grid;gap:10px;text-align:left">
+      <div style="background:#f4f6fd;border:1px solid #e2e6f5;border-radius:10px;padding:11px 13px;font-size:12px;color:#4a5170;line-height:1.6">
+        <b style="color:#5b6ef5">📋 자동결의 설계안 (최대 묶음)</b><br>
+        · 용도(예산계정): ${b.use ? `<b style="color:#12a150">${esc(b.use)}</b>${b.budget ? ` · 예산부서 <b>${esc(b.budget)}</b>` : ''}` : '<b style="color:#c98a00">아래 직접 지정</b>'}<br>
+        · 매칭: 아래 <b>${b.merchantCount}개 사용처</b> 중 하나라도 포함된 미결의<br>
+        · 묶음: 전부 <b>하나의 결의서</b>로 묶어 상신 · 결재선 <b>법인카드 지출결의서</b><br>
+        · 근거: <b>${b.monthCount}개월 반복</b> · ${b.count}건 · ${b.total.toLocaleString('en-US')}원
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">${chips}</div>
+      <label style="font-size:12px;color:var(--muted)">사용처 키워드 <span style="color:#9aa1b5">(쉼표로 구분 · 편집 가능)</span>
+        <input id="reg-kw" value="${esc(b.merchants.map(m => m.merchant).join(', '))}" style="width:100%;margin-top:4px"></label>
+      <label style="font-size:12px;color:var(--muted)">용도 (예산계정)
+        <input id="reg-use" value="${esc(b.use || '')}" placeholder="예: 서버이용료" style="width:100%;margin-top:4px"></label>
+      <label style="font-size:12px;color:var(--muted)">목적지 이름
+        <input id="reg-name" value="${esc((b.use || '사용처') + ' 자동결의')}" style="width:100%;margin-top:4px"></label>
+    </div>`,
+  });
+  if (!ok) return;
+  const keywords = ($('reg-kw').value || '').split(',').map(x => x.trim()).filter(Boolean);
+  const use = ($('reg-use').value || '').trim(), label = ($('reg-name').value || '').trim();
+  if (!keywords.length || !use) {
+    $('bz-confirm').style.display = 'block';
+    $('bz-confirm').style.cssText += ';background:#fdf1f1;border-color:#f2d0d0;color:#8a3d3d';
+    $('bz-confirm').innerHTML = '⚠ 사용처와 용도를 모두 입력하세요.';
+    return;
+  }
+  try {
+    const r = await fetch('/api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keywords, use, label, budget: b.budget }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '등록 실패');
+    await loadUserRecipes();
+    selectRecipe(j.rule.id);
+  } catch (e) {
+    $('bz-confirm').style.display = 'block';
+    $('bz-confirm').innerHTML = '❌ ' + esc(e.message);
+  }
+}
 // 상신 결과 → 다시 조회 (활성 레시피 기준)
 document.addEventListener('click', (e) => { if (e.target.closest('#bs-reload')) load(); });
+// 등록 목적지 상신
+$('pt-go').addEventListener('click', async () => {
+  const d = lastData; if (!d || d.recipe !== 'pattern') return;
+  const s = d.summary;
+  if (!s.count) return;
+  if (!(await uiConfirm({
+    title: `${esc(d.ruleLabel)} ${s.count}건 상신`, ok: '상신', danger: true,
+    body: `<b>${s.count}건 (${s.amount.toLocaleString('en-US')}원)</b>을 하나의 결의서로 묶어 상신합니다.<br><span class="m">용도 <b>${esc(d.use)}</b> · 결재선 <b>법인카드 지출결의서</b> · 해외는 3일 경과분만.</span>`,
+  }))) return;
+  runSubmit(d.patternId);
+});
 
 // 출퇴근정정 자동화: 입력한 출근/퇴근 시각 수집 → InOutModify 폼 실제 상신
 const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
@@ -874,37 +1072,59 @@ $('cr-go').addEventListener('click', async () => {
     rows.push({ date, in: iv, out: ov });
   }
   if (!rows.length) { $('cr-confirm').style.display = 'block'; $('cr-confirm').innerHTML = '정정할 날의 <b>출근·퇴근 시간을 입력</b>하세요.'; return; }
-  if (!confirm(`출퇴근 정정 ${rows.length}건을 실제로 상신합니다.\n`
-    + rows.map(r => `· ${r.date}  출근 ${r.in} · 퇴근 ${r.out}`).join('\n')
-    + `\n\n결재선: 이학준(전략사업본부) · 수신참조 김용덕\n진행할까요?`)) return;
+  if (!(await uiConfirm({
+    title: `출퇴근 정정 ${rows.length}건 상신`, ok: '상신', danger: true,
+    body: `<b>실제로 상신</b>합니다.<br><span class="m">`
+      + rows.map(r => `· ${esc(r.date)}  출근 ${esc(r.in)} · 퇴근 ${esc(r.out)}`).join('<br>')
+      + `<br><br>결재선: 이학준(전략사업본부) · 수신참조 김용덕</span>`,
+  }))) return;
   await streamRun('/api/correction/submit/stream', { rows },
     { urlText: 'user.timeinout.kr', capText: '출퇴근 정정 신청 상신 중 (단계별 실시간 표시)', loadingText: '타임인아웃 정정 신청 중…' });
 });
 
 // 야근택시 레시피: 🚀 증빙 첨부 + 일괄 상신
-$('yg-go').addEventListener('click', () => {
+$('yg-go').addEventListener('click', async () => {
   const d = lastData; if (!d || d.recipe !== 'yagun') return;
   const s = d.summary;
   if (!s.withProof) return;
+  if (!(await uiConfirm({
+    title: `야근택시 ${s.withProof}건 상신`, ok: '상신', danger: true,
+    body: `<b>${s.withProof}건 (${s.amount.toLocaleString('en-US')}원)</b>을 하나의 결의서로 묶어 상신합니다.<br><span class="m">용도 <b>야근교통비</b> · <b>타임인아웃 야근/휴일 증빙 1장(표)</b> 자동첨부 · 결재선 <b>법인카드 지출결의서</b>(임성훈 CFO 외) · 기록 없는 ${s.noProof}건은 제외.</span>`,
+  }))) { $('yg-confirm').style.display = 'none'; return; }
   $('yg-confirm').style.display = 'block';
   $('yg-confirm').innerHTML = `<b>🚀 야근택시 ${s.withProof}건 (${s.amount.toLocaleString('en-US')}원) 상신</b>
-    <br><span style="color:#8a3d3d">용도 <b>야근교통비</b> · 각 건에 <b>타임인아웃 야근/휴일근무 증빙 이미지 자동첨부</b> · 결재선 <b>법인카드 지출결의서</b>(임성훈 CFO 외) · 기록 없는 ${s.noProof}건은 증빙 불가로 제외.</span>`;
-  if (!confirm(`야근택시 ${s.withProof}건을 실제로 상신합니다.\n· 용도: 야근교통비\n· 각 건에 타임인아웃 야근/휴일 증빙 자동첨부\n· 결재선: 법인카드 지출결의서\n· 기록 없는 ${s.noProof}건은 제외\n\n진행할까요?`)) { $('yg-confirm').style.display = 'none'; return; }
+    <br><span style="color:#8a3d3d">용도 <b>야근교통비</b> · <b>야근/휴일근무 증빙 1장 자동첨부</b> · 결재선 <b>법인카드 지출결의서</b>(임성훈 CFO 외) · 기록 없는 ${s.noProof}건은 증빙 불가로 제외.</span>`;
   runSubmit('p2');
 });
 // 정정 대기건 '미리 결의': 승인 전이지만 정정 신청값을 증빙으로 써서 지금 결의
-$('yg-go-pending').addEventListener('click', () => {
+$('yg-go-pending').addEventListener('click', async () => {
   const d = lastData; if (!d || d.recipe !== 'yagun') return;
   const pc = d.summary.pendingCorrection || 0;
   if (!pc) return;
-  if (!confirm(`정정 대기 ${pc}건을 '미리 결의'합니다.\n· 아직 결재 대기 중인 출퇴근 정정 신청값을 증빙으로 사용\n· 용도: 야근교통비 · 결재선: 법인카드 지출결의서\n· ⚠ 정정이 반려되면 이 결의도 근거가 사라질 수 있어요\n\n진행할까요?`)) return;
+  if (!(await uiConfirm({
+    title: `정정 대기 ${pc}건 미리 결의`, ok: '미리 결의', danger: true,
+    body: `아직 결재 대기 중인 <b>출퇴근 정정 신청값</b>을 증빙으로 써서 지금 결의합니다.<br><span class="m">용도 <b>야근교통비</b> · 결재선 <b>법인카드 지출결의서</b><br>⚠ 정정이 반려되면 이 결의도 근거가 사라질 수 있어요.</span>`,
+  }))) return;
   runSubmit('p2', 'pending');
+});
+// 야근식비 레시피: 🍱 인정건 일괄 상신 (혼자 식대 · 저녁=야근/조식=출근<8)
+$('ys-go').addEventListener('click', async () => {
+  const d = lastData; if (!d || d.recipe !== 'yasik') return;
+  const s = d.summary;
+  if (!s.eligible) return;
+  if (!(await uiConfirm({
+    title: `야근식비 ${s.eligible}건 상신`, ok: '상신', danger: true,
+    body: `<b>인정 ${s.eligible}건</b>을 하나의 결의서로 묶어 상신합니다.<br><span class="m">혼자 먹은 1인 식대 · 저녁=그날 야근 / 조식=출근&lt;08:00 인정건만 · 용도 <b>야근식비</b> · 결재선 <b>법인카드 지출결의서</b> · 미충족 ${s.excluded}건은 제외.</span>`,
+  }))) return;
+  $('ys-confirm').style.display = 'block';
+  $('ys-confirm').innerHTML = `<b>🍱 야근식비 ${s.eligible}건 상신</b><br><span style="color:#8a3d3d">용도 <b>야근식비</b> · 결재선 <b>법인카드 지출결의서</b> · 미인정 ${s.excluded}건 제외.</span>`;
+  runSubmit('p3');
 });
 
 // 초기화: 계정 상태 + 레시피 목록 + 계정관리 폼
 (async () => {
   try { accounts = await (await fetch('/api/accounts')).json(); } catch {}
-  renderRecipes();
+  await loadUserRecipes();     // 등록된 목적지 → 사이드바 (renderRecipes 포함)
   renderAccountList();
   selectRecipe(activeRecipe.id);
 })();

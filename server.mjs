@@ -7,7 +7,7 @@ import express from 'express';
 
 const __dirname = dirname(fileURLToPath(import.meta.url)); // pkg 스냅샷/일반 실행 양쪽 정적경로
 import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
-import { getCardPending, submitExpenses, getYagunTaxi } from './src/lib/bizplay.mjs';
+import { getCardPending, submitExpenses, getYagunTaxi, getYasik, getRulePending, readUserRules, writeUserRules } from './src/lib/bizplay.mjs';
 import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
 
 const app = express();
@@ -136,6 +136,63 @@ app.post('/api/yagun/stream', async (req, res) => {
     send({ type: 'error', error: e.message });
   }
   res.end();
+});
+
+// 야근식비 전용 조회 (혼자 먹은 1인 식대 + 타임인아웃 근태로 저녁/조식 인정 판정)
+app.post('/api/yasik/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [yasik] 야근식비 조회 / ${month}`);
+    const data = await getYasik({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('yasik 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 등록된 목적지(사용자 규칙) 미리보기 스캔
+app.post('/api/pattern/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '', patternId } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [pattern] ${patternId} 조회 / ${month}`);
+    const data = await getRulePending({ month, id, pw, patternId, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('pattern 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// ── 사용자 규칙(패턴→목적지 등록) CRUD ──
+app.get('/api/rules', (req, res) => { res.json({ rules: readUserRules() }); });
+app.post('/api/rules', (req, res) => {
+  const { keyword, keywords, use, label, by, budget } = req.body || {};
+  const kws = (Array.isArray(keywords) ? keywords : [keyword]).map((k) => String(k || '').trim()).filter(Boolean);
+  if (!kws.length || !use) return res.status(400).json({ error: '사용처(keyword)와 용도(use)는 필수' });
+  const rules = readUserRules();
+  const id = 'u' + (rules.reduce((mx, r) => Math.max(mx, +String(r.id).replace(/\D/g, '') || 0), 0) + 1);
+  const rule = { id, keywords: kws, use: String(use).trim(), submitUse: String(use).trim(), label: (label || `${kws[0]} 자동결의`).trim(), by: (by || '').trim(), budget: (budget || '').trim() };
+  rules.push(rule);
+  writeUserRules(rules);
+  res.json({ ok: true, rule });
+});
+app.delete('/api/rules/:id', (req, res) => {
+  const rules = readUserRules().filter((r) => r.id !== req.params.id);
+  writeUserRules(rules);
+  res.json({ ok: true });
 });
 
 // 비즈플레이 규칙별 '실제 상신'(결의서 작성→용도→결재요청→결재선 확인) 스트리밍
