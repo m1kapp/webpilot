@@ -1,0 +1,203 @@
+<!doctype html>
+<!-- Hallmark · macrostructure: Marquee Hero + Boarding-Pass download · genre: modern-minimal
+     tone: trustworthy-utility + aviation wit · anchor hue: indigo→violet (webwing brand)
+     pre-emit critique: P5 H4 E4 S4 R5 V4 -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>webwing — 사내 업무 자동 조종석</title>
+<meta name="description" content="타임인아웃·비즈플레이·flow.team을 브라우저가 대신 조종. 초과근무 분석부터 결재 상신까지 버튼 하나로.">
+<style>
+  :root{
+    --accent:#6366f1; --accent2:#8b5cf6; --grad:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);
+    --ink:#16192e; --muted:#7b8299; --line:#e7e9f3; --paper:#f7f8fc; --card:#ffffff; --red:#e0503b;
+    --ok:#17915a; --ok-bg:#e7f6ec; --warn:#c07d13; --warn-bg:#fdf1e0;
+    --font: 'Apple SD Gothic Neo','Malgun Gothic','Pretendard',system-ui,sans-serif;
+    --space-xs:6px; --space-sm:12px; --space-md:20px; --space-lg:34px; --space-xl:60px; --space-2xl:96px;
+    --ease-out:cubic-bezier(.22,.61,.36,1); --radius:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{overflow-x:clip}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--paper);
+    -webkit-font-smoothing:antialiased;line-height:1.6}
+  a{color:inherit;text-decoration:none}
+  .wrap{width:100%;max-width:960px;margin:0 auto;padding:0 22px}
+  h1,h2,h3{font-style:normal;letter-spacing:-.02em;line-height:1.12;margin:0}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;background:rgba(247,248,252,.82);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:10px;height:60px}
+  .brand{font-weight:800;font-size:17px;display:flex;align-items:center;gap:8px}
+  .brand .plane{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:9px;
+    background:var(--grad);font-size:16px}
+  .ver{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--muted);
+    background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+  .nav-dl{font-size:13px;font-weight:700;color:#fff;background:var(--grad);border-radius:999px;
+    padding:8px 15px;transition:.15s var(--ease-out)}
+  .nav-dl:hover{filter:brightness(1.06);transform:translateY(-1px)}
+
+  /* hero */
+  header{padding:var(--space-2xl) 0 var(--space-xl)}
+  .eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;
+    color:var(--accent);background:#eef0fe;border-radius:999px;padding:6px 13px;margin-bottom:20px}
+  h1{font-size:clamp(34px,6.4vw,58px);font-weight:800;overflow-wrap:anywhere;min-width:0}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:clamp(15px,2.1vw,18px);color:var(--muted);max-width:38ch;margin:22px 0 0;font-weight:500}
+  .thesis{margin-top:26px;padding:14px 18px;border-left:3px solid var(--accent);background:#fff;
+    border-radius:0 12px 12px 0;font-size:14px;color:var(--ink);font-weight:600;max-width:44ch}
+
+  /* boarding-pass download */
+  .pass-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:var(--space-lg)}
+  .pass{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 22px 20px;box-shadow:0 14px 34px -20px rgba(60,58,140,.34);overflow:hidden;
+    transition:.18s var(--ease-out)}
+  .pass:hover{transform:translateY(-3px);box-shadow:0 22px 44px -20px rgba(60,58,140,.42)}
+  .pass::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad)}
+  .pass .os{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
+  .pass .os .ico{font-size:22px}
+  .pass .meta{font-size:11.5px;color:var(--muted);margin:5px 0 16px;font-variant-numeric:tabular-nums}
+  .pass .cut{border:none;border-top:1.5px dashed var(--line);margin:0 -22px 16px}
+  .dl-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    font-size:14.5px;font-weight:800;color:#fff;background:var(--grad);border:none;border-radius:12px;
+    padding:13px;cursor:pointer;transition:.15s var(--ease-out)}
+  .dl-btn:hover{filter:brightness(1.06)}
+  .dl-btn:focus-visible{outline:3px solid rgba(99,102,241,.5);outline-offset:2px}
+  .dl-sub{text-align:center;font-size:11px;color:var(--muted);margin-top:9px}
+  .soon{background:var(--warn-bg);color:var(--warn);font-size:10px;font-weight:800;border-radius:6px;
+    padding:2px 7px;margin-left:auto}
+
+  /* generic section */
+  section{padding:var(--space-xl) 0;border-top:1px solid var(--line)}
+  .sec-h{font-size:12.5px;font-weight:800;color:var(--accent);letter-spacing:.04em;margin-bottom:10px}
+  .sec-t{font-size:clamp(23px,3.6vw,32px);font-weight:800;max-width:20ch}
+  .sec-d{color:var(--muted);font-size:14.5px;margin-top:12px;max-width:52ch}
+
+  /* 목적지 grid */
+  .dest{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:var(--space-lg)}
+  .dcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 19px;
+    transition:.15s var(--ease-out)}
+  .dcard:hover{border-color:#d3d7ee;box-shadow:0 10px 26px -18px rgba(60,58,140,.35)}
+  .dcard .n{font-size:11px;font-weight:800;color:#c1c6e0;font-variant-numeric:tabular-nums}
+  .dcard .h{font-size:15.5px;font-weight:800;margin:7px 0 5px}
+  .dcard .p{font-size:13px;color:var(--muted);line-height:1.55}
+
+  /* 설치 스텝 */
+  .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:var(--space-lg)}
+  .step .num{width:34px;height:34px;border-radius:10px;background:#eef0fe;color:var(--accent);
+    font-weight:800;display:grid;place-items:center;font-size:15px;margin-bottom:12px}
+  .step .h{font-size:15px;font-weight:800;margin-bottom:5px}
+  .step .p{font-size:13px;color:var(--muted);line-height:1.55}
+  .step code{background:#eef0f7;border-radius:6px;padding:1px 6px;font-size:12px;font-weight:700;color:var(--ink)}
+
+  /* 보안 */
+  .sec-sec{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px 28px;margin-top:var(--space-lg)}
+  .slist{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:12px}
+  .slist li{display:flex;gap:11px;align-items:flex-start;font-size:14px}
+  .slist .chk{flex:none;width:22px;height:22px;border-radius:7px;background:var(--ok-bg);color:var(--ok);
+    display:grid;place-items:center;font-size:13px;font-weight:900;margin-top:1px}
+  .slist b{font-weight:800}
+
+  /* 준비물 */
+  .req{display:flex;flex-wrap:wrap;gap:12px;margin-top:var(--space-md)}
+  .chip{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);
+    border-radius:12px;padding:11px 15px;font-size:13.5px;font-weight:600}
+  .chip .k{font-weight:800}
+  .chip small{color:var(--muted);font-weight:500}
+
+  footer{border-top:1px solid var(--line);padding:var(--space-lg) 0 var(--space-xl);color:var(--muted);font-size:12.5px}
+  .foot-in{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  footer .plane{opacity:.7}
+
+  @media (max-width:640px){
+    header{padding:var(--space-xl) 0 var(--space-lg)}
+    .pass-row,.dest,.steps{grid-template-columns:minmax(0,1fr)}
+    .nav-dl{display:none}
+  }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap nav-in">
+  <span class="brand"><span class="plane">🛫</span>webwing</span>
+  <span class="ver">v1.0 · 사내 배포</span>
+  <a class="nav-dl" href="#download">다운로드</a>
+</div></nav>
+
+<header class="wrap">
+  <span class="eyebrow">✈️ 사내 업무 자동 조종석</span>
+  <h1>반복 업무는<br><span class="g">자동 비행</span>에 맡겨요.</h1>
+  <p class="lede">타임인아웃·비즈플레이·flow.team. 로그인부터 조회·정리·결재 상신까지 — 브라우저가 대신 조종합니다.</p>
+  <div class="thesis">API를 안 주는 서비스는, 자동화가 곧 그 서비스의 API가 된다.</div>
+
+  <div class="pass-row" id="download">
+    <div class="pass">
+      <div class="os"><span class="ico">🍎</span>Mac<span class="soon">곧</span></div>
+      <div class="meta">Apple Silicon · Intel · macOS 12+</div>
+      <hr class="cut">
+      <a class="dl-btn" href="./downloads/webwing-mac.dmg" download>⬇ Mac용 받기 (.dmg)</a>
+      <div class="dl-sub">더블클릭 → 설치 → 실행. 터미널 필요 없음.</div>
+    </div>
+    <div class="pass">
+      <div class="os"><span class="ico">🪟</span>Windows<span class="soon">곧</span></div>
+      <div class="meta">Windows 10 · 11 (64-bit)</div>
+      <hr class="cut">
+      <a class="dl-btn" href="./downloads/webwing-win.zip" download>⬇ Windows용 받기 (.zip)</a>
+      <div class="dl-sub">압축 풀고 실행 파일 더블클릭.</div>
+    </div>
+  </div>
+</header>
+
+<section class="wrap">
+  <div class="sec-h">무엇을 태우나</div>
+  <h2 class="sec-t">4개의 목적지</h2>
+  <p class="sec-d">한 번 등록해 두면, 매달 손으로 하던 일을 버튼 하나로 반복합니다.</p>
+  <div class="dest">
+    <div class="dcard"><div class="n">01</div><div class="h">초과근무 분석</div>
+      <div class="p">타임인아웃 출퇴근 펀치를 긁어 실제 야근·휴일근무를 집계하고 엑셀로 내려받아요.</div></div>
+    <div class="dcard"><div class="n">02</div><div class="h">출퇴근 정정 자동화</div>
+      <div class="p">누락된 날을 찾아 정정값을 계산하고, 중복 신청은 걸러 실제 결재까지 상신해요.</div></div>
+    <div class="dcard"><div class="n">03</div><div class="h">야근택시 자동결의</div>
+      <div class="p">심야 택시 미결의건을 타임인아웃 야근 기록으로 증빙 매칭 → 한 결의서로 묶어 결재 1건 상신.</div></div>
+    <div class="dcard"><div class="n">04</div><div class="h">법인카드 미결의 조회</div>
+      <div class="p">비즈플레이 '대기(미결의)' 카드건을 한눈에 모아 용도별로 정리해 보여줘요.</div></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-h">탑승 절차</div>
+  <h2 class="sec-t">3단계면 이륙</h2>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="h">설치</div>
+      <div class="p">받은 파일을 더블클릭. 최초 1회만. <code>확인되지 않은 개발자</code> 경고는 우클릭 → 열기.</div></div>
+    <div class="step"><div class="num">2</div><div class="h">승객정보 등록</div>
+      <div class="p">앱이 열리면 <b>승객정보</b> 탭에서 본인 계정을 등록. 이 컴퓨터에만 암호화 저장돼요.</div></div>
+    <div class="step"><div class="num">3</div><div class="h">목적지 선택</div>
+      <div class="p"><b>자동화</b> 탭에서 원하는 자동화를 눌러 실행. 나머지는 자동 조종.</div></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-h">기내 안전</div>
+  <h2 class="sec-t">비밀번호는 내 컴퓨터 밖으로 안 나가요</h2>
+  <div class="sec-sec">
+    <ul class="slist">
+      <li><span class="chk">✓</span><span>등록한 로그인 정보는 <b>본인 컴퓨터에만 암호화 저장</b>(<code style="font-size:12px">.auth</code>). 서버로 전송되지 않아요.</span></li>
+      <li><span class="chk">✓</span><span>서버는 <b>127.0.0.1</b>(본인 컴퓨터)에서만 열려서 외부 접근이 불가능해요.</span></li>
+      <li><span class="chk">✓</span><span>자동화는 <b>보이지 않는 백그라운드 크롬</b>으로 돌아요 — 쓰던 크롬 창은 안 건드려요.</span></li>
+      <li><span class="chk">✓</span><span>이 앱은 <b>계정 정보를 담고 있지 않아요.</b> 설치 후 각자 등록합니다.</span></li>
+    </ul>
+    <div class="req">
+      <span class="chip"><span class="k">🌐 Google Chrome</span><small>대부분 이미 있음 · 자동화 엔진</small></span>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap"><div class="foot-in">
+  <span class="brand" style="font-size:14px"><span class="plane" style="width:24px;height:24px;font-size:13px">🛫</span>webwing</span>
+  <span style="margin-left:auto">문제 생기면 <b style="color:var(--ink)">유민호</b>에게 문의 🙋</span>
+</div></footer>
+
+</body>
+</html>

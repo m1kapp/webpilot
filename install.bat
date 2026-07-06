@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-REM webpilot 설치 (1회) - 더블클릭
+REM webwing 설치 (1회) - 더블클릭
 setlocal
 cd /d "%~dp0"
 
 echo ============================
-echo   webpilot 설치를 시작합니다
+echo   webwing 설치를 시작합니다
 echo ============================
 echo.
 

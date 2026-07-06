@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Webwing 런처 — 더블클릭. 터미널 창 없이 서버 시작 + 브라우저 오픈.
+# Webwing.app 은 저장소 루트에 있으므로, 루트 = 이 실행파일 기준 3단계 위.
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$ROOT" || exit 1
+
+# node 경로 확보 (GUI 실행은 PATH가 최소라 직접 채움 — 흔한 설치 위치 다 추가)
+export PATH="$HOME/.local/bin:$HOME/.local/lib/nodejs/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+for d in "$HOME"/.nvm/versions/node/*/bin "$HOME"/.volta/bin "$HOME"/.fnm/*/bin "$HOME"/n/bin; do [ -d "$d" ] && PATH="$d:$PATH"; done
+# 그래도 못 찾으면 로그인 셸(.zprofile/.zshrc)의 PATH를 통째로 흡수 (nvm 등 사용자별 설정 대응)
+if ! command -v node >/dev/null 2>&1; then
+  LOGIN_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
+  [ -n "$LOGIN_PATH" ] && export PATH="$LOGIN_PATH:$PATH"
+fi
+BASE_PORT="${PORT:-18181}"
+PORTFILE="$ROOT/.tmp/webwing.port"
+
+notify() { osascript -e "display notification \"$2\" with title \"Webwing\"" 2>/dev/null || true; }
+
+if ! command -v node >/dev/null 2>&1; then
+  osascript -e 'display alert "Webwing" message "Node.js가 없습니다. install.command 를 먼저 실행하세요." as critical' 2>/dev/null
+  exit 1
+fi
+if [ ! -d node_modules ]; then
+  osascript -e 'display alert "Webwing" message "설치가 안 됐어요. install.command 를 먼저 더블클릭하세요." as critical' 2>/dev/null
+  exit 1
+fi
+
+# 이미 떠 있으면(직전 포트 파일 기준) 브라우저만 열고 끝 (중복 실행 방지)
+if [ -f "$PORTFILE" ]; then
+  EXIST="$(cat "$PORTFILE" 2>/dev/null)"
+  if [ -n "$EXIST" ] && curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$EXIST/"; then
+    open "http://127.0.0.1:$EXIST"; exit 0
+  fi
+fi
+
+# 서버를 백그라운드(detached)로 — 이 런처가 끝나도 서버는 살아있음. 포트는 서버가 자동 폴백 후 파일에 기록.
+mkdir -p "$ROOT/.tmp"
+rm -f "$PORTFILE"
+PORT="$BASE_PORT" nohup node server.mjs > "$ROOT/.tmp/webwing.log" 2>&1 &
+
+# 서버가 실제 포트를 기록할 때까지 대기 → 그 포트로 브라우저 오픈
+ACTUAL=""
+for i in $(seq 1 30); do
+  [ -f "$PORTFILE" ] && ACTUAL="$(cat "$PORTFILE" 2>/dev/null)"
+  if [ -n "$ACTUAL" ] && curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$ACTUAL/"; then break; fi
+  sleep 0.5
+done
+ACTUAL="${ACTUAL:-$BASE_PORT}"
+open "http://127.0.0.1:$ACTUAL" 2>/dev/null
+notify "실행" "webwing 실행됨 · http://127.0.0.1:$ACTUAL"
+exit 0

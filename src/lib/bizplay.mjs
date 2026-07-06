@@ -39,12 +39,12 @@ function yasikClass(item, rec) {
 }
 const APPR_LINE = '법인카드 지출결의서'; // 결재선 팝업에서 명시 선택 (최근결재선 의존 제거)
 
-// ── 사용자 정의 규칙(패턴→목적지 등록) 영속 저장. 사용처 포함 매칭. ──
+// ── 사용자 정의 규칙(패턴→자동화 등록) 영속 저장. 사용처 포함 매칭. ──
 const USER_RULES_FILE = '.auth/user-rules.json';
 const normMerchant = (m) => String(m || '').replace(/[_\-]?\s*\d+\s*$/, '').replace(/\((법인|주|유|개인)\)/g, '').replace(/\s+/g, ' ').trim();
 export function readUserRules() { try { return JSON.parse(readFileSync(USER_RULES_FILE, 'utf8')); } catch { return []; } }
 export function writeUserRules(rules) { mkdirSync('.auth', { recursive: true }); writeFileSync(USER_RULES_FILE, JSON.stringify(rules, null, 2)); }
-// 사용자 규칙 → 정적 규칙과 동일 shape. keywords(여러 사용처) 중 하나라도 포함되면 매칭(번들 목적지)
+// 사용자 규칙 → 정적 규칙과 동일 shape. keywords(여러 사용처) 중 하나라도 포함되면 매칭(번들 자동화)
 const ruleKeywords = (u) => (u.keywords && u.keywords.length ? u.keywords : [u.keyword]).filter(Boolean);
 const matchKeyword = (merchant, kw) => String(merchant || '').includes(kw) || normMerchant(merchant).includes(normMerchant(kw));
 const userRuleToRule = (u) => ({ id: u.id, label: u.label || `${ruleKeywords(u)[0]} 자동결의`, use: u.use, submitUse: u.submitUse || u.use, dept: u.dept || '', by: u.by || '', user: true, keywords: ruleKeywords(u),
@@ -213,20 +213,20 @@ export async function getCardPending({ id, pw, month, onSnapshot, freshLogin }) 
     }));
     const repeated = all.filter((g) => g.monthCount >= 2);
 
-    // 추천 제외: (1) 이미 웹파일럿 목적지 있음(전용 레시피 용도 or 등록 규칙) (2) 인원(직원) 변동
+    // 추천 제외: (1) 이미 웹윙 자동화 있음(전용 레시피 용도 or 등록 규칙) (2) 인원(직원) 변동
     const userRules = readUserRules();
-    const DEDICATED_USES = new Set(['야근교통비', '야근식비']);   // 야근택시/야근식비 전용 목적지가 처리
+    const DEDICATED_USES = new Set(['야근교통비', '야근식비']);   // 야근택시/야근식비 전용 자동화가 처리
     const coveredByUser = (merchant) => userRules.some((u) => (u.keywords && u.keywords.length ? u.keywords : [u.keyword]).filter(Boolean).some((k) => matchKeyword(merchant, k)));
     const skipReason = (g) => {
-      if (g.use && DEDICATED_USES.has(g.use)) return '전용 목적지(야근택시/식비)';
-      if (coveredByUser(g.merchant)) return '이미 등록된 목적지';
+      if (g.use && DEDICATED_USES.has(g.use)) return '전용 자동화(야근택시/식비)';
+      if (coveredByUser(g.merchant)) return '이미 등록된 자동화';
       if (g.staffCount > 1) return '인원 변동';
       return '';
     };
     const recommended = [], skipped = [];
     for (const g of repeated) { const r = skipReason(g); if (r) skipped.push({ ...g, skip: r }); else recommended.push(g); }
 
-    // 최대 묶기: 같은 용도(예산계정) 사용처들을 하나의 번들 목적지로 제안
+    // 최대 묶기: 같은 용도(예산계정) 사용처들을 하나의 번들 자동화로 제안
     const bmap = {};
     for (const g of recommended) {
       const key = g.use || '(용도 미지정)';
@@ -338,7 +338,7 @@ export async function getYasik({ id, pw, month, onSnapshot, freshLogin }) {
   } finally { await ctx.close().catch(() => {}); }
 }
 
-// 등록된 목적지(사용자 규칙) 미리보기: 대기건 중 이 규칙에 걸리는 것만 스캔 → 상신은 이 화면 아닌 목적지에서
+// 등록된 자동화(사용자 규칙) 미리보기: 대기건 중 이 규칙에 걸리는 것만 스캔 → 상신은 이 화면 아닌 자동화에서
 export async function getRulePending({ id, pw, month, patternId, onSnapshot, freshLogin }) {
   const rule = allRules().find((r) => r.id === patternId);
   if (!rule) throw new Error('알 수 없는 규칙: ' + patternId);
@@ -494,7 +494,7 @@ async function renderYagunTableImage(rows, mode, month) {
       <div style="color:#96a0b5;font-size:11px;margin-top:12px">※ 각 야근/휴일근무일의 실제 출퇴근 기록과 심야택시 사용을 매칭한 일괄 증빙 · 야근 택시비</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6;color:#aab2c2;font-size:10.5px">
         ${TIMEINOUT_LOGO ? `<img src="${TIMEINOUT_LOGO}" width="13" height="13" style="border-radius:3px;opacity:.8"/>` : ''}
-        <span>출처: <b style="color:#8f98a8">타임인아웃</b> (user.timeinout.kr) · ${isPending ? '출퇴근 정보수정 요청' : '근태 출퇴근 기록'} · webpilot 자동 생성</span></div>
+        <span>출처: <b style="color:#8f98a8">타임인아웃</b> (user.timeinout.kr) · ${isPending ? '출퇴근 정보수정 요청' : '근태 출퇴근 기록'} · webwing 자동 생성</span></div>
     </div>`);
     const buf = await pg.locator('#card').screenshot({ type: 'png' });
     mkdirSync('.tmp', { recursive: true });

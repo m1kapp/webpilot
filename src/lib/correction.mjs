@@ -160,7 +160,7 @@ export async function submitCorrections({ rows = [], memo, onSnapshot }) {
         await p.waitForSelector('input[name="InOutData[0].inTimeApproval"]', { timeout: 8000 });
         await setMaskedTime(p, 'InOutData[0].inTimeApproval', inV);
         await setMaskedTime(p, 'InOutData[0].OutTimeApproval', outV);
-        await p.fill('textarea[name="RequestInOutMemo"]', memo || '실제 근무시간으로 정정 요청 (webpilot)');
+        await p.fill('textarea[name="RequestInOutMemo"]', memo || '실제 근무시간으로 정정 요청 (webwing)');
         await snap(p, `정정 입력 ${r.date} · 출 ${inV} / 퇴 ${outV}`, snapshots);
         await p.getByRole('button', { name: '수정 요청' }).click({ timeout: 8000 });
         await p.waitForTimeout(2500);

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# webpilot 설치 (1회) — 더블클릭 또는 `bash install.command`
+# webwing 설치 (1회) — 더블클릭 또는 `bash install.command`
 set -e
 cd "$(dirname "$0")"
 # GUI 더블클릭 시 PATH 보정 (Homebrew/Node 경로)
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.nvm/versions/node/*/bin:$PATH"
 
-echo "🛫 webpilot 설치를 시작합니다"
+echo "🛫 webwing 설치를 시작합니다"
 echo ""
 
 # 1) Node.js 확인

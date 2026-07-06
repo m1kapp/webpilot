@@ -11,7 +11,7 @@ import { getCardPending, submitExpenses, getYagunTaxi, getYasik, getRulePending,
 import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
 
 const app = express();
-const PORT = process.env.PORT || 8181;
+const BASE_PORT = +(process.env.PORT || 18181);   // 파일럿 포트(팰린드롬). 막히면 자동 폴백.
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(join(__dirname, 'public')));
 
@@ -273,6 +273,17 @@ app.post('/api/accounts', (req, res) => {
 });
 
 // 127.0.0.1 바인딩: 평문 자격증명을 반환하는 /api/accounts가 LAN에 노출되지 않도록 localhost 전용
-app.listen(PORT, '127.0.0.1', () => console.log(`\n✅ webpilot 실행: http://localhost:${PORT}\n`));
+// 포트 자동 폴백: BASE_PORT 막혀 있으면 +1씩 최대 20개 시도. 실제 포트는 .tmp/webwing.port 에 기록(런처가 읽음).
+function listen(port, tries) {
+  const srv = app.listen(port, '127.0.0.1', () => {
+    try { mkdirSync(join(__dirname, '.tmp'), { recursive: true }); writeFileSync(join(__dirname, '.tmp', 'webwing.port'), String(port)); } catch {}
+    console.log(`\n✅ webwing 실행: http://127.0.0.1:${port}\n`);
+  });
+  srv.on('error', (e) => {
+    if (e.code === 'EADDRINUSE' && tries > 0) { console.error(`⚠ 포트 ${port} 사용 중 → ${port + 1} 시도`); listen(port + 1, tries - 1); }
+    else { console.error('서버 시작 실패:', e.message); process.exit(1); }
+  });
+}
+listen(BASE_PORT, 20);
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await closeBrowser(); process.exit(0); });
