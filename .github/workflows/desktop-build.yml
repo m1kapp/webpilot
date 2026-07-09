@@ -33,6 +33,10 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: Fetch node sidecar runtime
+        working-directory: desktop
+        run: npm run fetch-node
+
       - name: Build Tauri app
         working-directory: desktop
         run: npm run tauri build

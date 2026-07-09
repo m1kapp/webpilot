@@ -1,12 +1,13 @@
-// Webwing 데스크톱 셸: node 사이드카(server.mjs)를 스폰하고, 뜨면 창을 그 주소로 이동.
-// 프로토타입 단계 — 시스템 node 사용(사이드카 바이너리 동봉·서명은 나중 단계).
+// Webwing 데스크톱 셸: 동봉된 node 사이드카로 server.mjs를 띄우고, 뜨면 창을 그 주소로 이동.
+// node 런타임 자체를 앱에 동봉하므로 사용자 PC에 Node.js가 없어도 됨(externalBin 사이드카).
 use std::path::PathBuf;
-use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
 
-struct Sidecar(Mutex<Option<Child>>);
+struct Sidecar(Mutex<Option<CommandChild>>);
 
 // production(번들): resource_dir에 server.mjs가 동봉됨. dev(cargo tauri dev): 옆 프로젝트 루트를 그대로 참조.
 fn resolve_server_root(app: &tauri::App) -> PathBuf {
@@ -22,6 +23,7 @@ fn resolve_server_root(app: &tauri::App) -> PathBuf {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -36,15 +38,38 @@ pub fn run() {
             let port_file = data_dir.join(".tmp").join("webwing.port");
             let _ = std::fs::remove_file(&port_file); // 이전 실행 잔재 제거 — 새 포트 오검출 방지
 
-            eprintln!("[webwing] node {} (data={})", server_entry.display(), data_dir.display());
-            let spawn = Command::new("node")
-                .arg(&server_entry)
-                .current_dir(&server_root)
-                .env("WEBPILOT_DATA_DIR", &data_dir)
-                .spawn();
-            match spawn {
-                Ok(child) => *app.state::<Sidecar>().0.lock().unwrap() = Some(child),
-                Err(e) => eprintln!("[webwing] node 사이드카 실행 실패: {e} — Node.js가 설치되어 있는지 확인하세요"),
+            eprintln!(
+                "[webwing] sidecar node {} (data={})",
+                server_entry.display(),
+                data_dir.display()
+            );
+            let sidecar = app
+                .shell()
+                .sidecar("node")
+                .expect("node 사이드카를 찾을 수 없습니다 (externalBin 설정 확인)")
+                .arg(server_entry.to_string_lossy().to_string())
+                .env("WEBPILOT_DATA_DIR", data_dir.to_string_lossy().to_string());
+            match sidecar.spawn() {
+                Ok((mut rx, child)) => {
+                    *app.state::<Sidecar>().0.lock().unwrap() = Some(child);
+                    // 사이드카 stdout/stderr를 그대로 앱 로그에 흘려보냄(문제 진단용)
+                    tauri::async_runtime::spawn(async move {
+                        use tauri_plugin_shell::process::CommandEvent;
+                        while let Some(event) = rx.recv().await {
+                            match event {
+                                CommandEvent::Stdout(line) => {
+                                    eprint!("[node] {}", String::from_utf8_lossy(&line))
+                                }
+                                CommandEvent::Stderr(line) => {
+                                    eprint!("[node:err] {}", String::from_utf8_lossy(&line))
+                                }
+                                CommandEvent::Error(e) => eprintln!("[node:spawn-error] {e}"),
+                                _ => {}
+                            }
+                        }
+                    });
+                }
+                Err(e) => eprintln!("[webwing] node 사이드카 실행 실패: {e}"),
             }
 
             std::thread::spawn(move || {
@@ -64,7 +89,7 @@ pub fn run() {
                     if Instant::now() >= deadline {
                         if let Some(win) = app_handle.get_webview_window("main") {
                             let _ = win.eval(
-                                "document.getElementById('msg').textContent='서버 시작 실패 — Node.js 설치를 확인해주세요.'",
+                                "document.getElementById('msg').textContent='서버 시작 실패 — 앱을 다시 설치해보세요.'",
                             );
                         }
                         return;
@@ -78,7 +103,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             // 창 닫힘 = 앱 종료. 백그라운드에 남은 node 사이드카(+ 크롬)를 같이 정리해 좀비 방지.
             if let WindowEvent::Destroyed = event {
-                if let Some(mut child) = window.state::<Sidecar>().0.lock().unwrap().take() {
+                if let Some(child) = window.state::<Sidecar>().0.lock().unwrap().take() {
                     let _ = child.kill();
                 }
             }

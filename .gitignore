@@ -1,6 +1,9 @@
 # deps
 node_modules/
 
+# node 런타임 사이드카 바이너리(~100MB) — CI/로컬에서 desktop/scripts/fetch-node.mjs로 받음
+desktop/src-tauri/binaries/
+
 # secrets — NEVER commit credentials
 .env
 .env.*
