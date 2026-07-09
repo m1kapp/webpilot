@@ -17,6 +17,7 @@ screenshots/
 *.jpg
 traces/
 *.zip
+!desktop/src-tauri/icons/*.png
 
 # temp downloads
 .tmp/
