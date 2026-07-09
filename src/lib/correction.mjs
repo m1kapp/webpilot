@@ -1,58 +1,12 @@
 // 근태 정정 레시피: 타임인아웃 누락일 탐지 → Flow 활동시간으로 실제 근무시간대 추정
 import { existsSync } from 'node:fs';
 import { getBrowser, snap } from './browser.mjs';
-import { getOvertimeEmployee } from './timeinout.mjs';
+import { getOvertimeEmployee, getSubmittedCorrections } from './timeinout.mjs';
 import { getDayActivity } from './flow.mjs';
+import { authPath } from './paths.mjs';
+export { getSubmittedCorrections }; // 하위호환: bizplay 등 기존 임포트 유지 (구현은 timeinout으로 이동)
 
-const USER_AUTH = '.auth/timeinout-user.json';
-// 대상월 기준 넓은 신청일 범위(±2개월)로 상신함을 조회 — 다른 달에 신청된 건을 놓치지 않도록
-function submitDateRange(month) {
-  const [ty, tm] = String(month).split('-').map(Number);
-  const at = (delta) => { const i = tm - 1 + delta; return { y: ty + Math.floor(i / 12), m: ((i % 12) + 12) % 12 + 1 }; };
-  const s = at(-2), e = at(+2);
-  return { start: `${s.y}-${s.m}-1`, end: `${e.y}-${e.m}-28` };
-}
-// 결재함 상신함에서 '이미 신청한 출퇴근시간수정' 내역 수집
-// 반환: { byDate: {날짜:{status,reqIn,reqOut}}, ok } — ok=false면 조회 신뢰불가(중복 신청 차단용)
-export async function getSubmittedCorrections(log, month) {
-  if (!existsSync(USER_AUTH)) return { byDate: {}, ok: false, reason: '세션파일 없음' };
-  const myName = process.env.TIMEINOUT_NAME || '유민호';
-  const browser = await getBrowser();
-  const ctx = await browser.newContext({ storageState: USER_AUTH });
-  try {
-    const p = await ctx.newPage();
-    await p.goto('https://user.timeinout.kr/ApprovalMng/Index', { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
-    if (/login/i.test(p.url())) { log('결재함 세션 만료 — 신청내역 확인불가'); return { byDate: {}, ok: false, reason: '세션 만료' }; }
-    await p.getByText('상신함', { exact: true }).first().click({ timeout: 5000 }).catch(() => {});
-    await p.waitForTimeout(2000);
-    // 기본 뷰는 당월만 보일 수 있어, 신청일 범위를 넓혀 재조회
-    const { start, end } = submitDateRange(month);
-    let u = p.url();
-    if (/SDate=/.test(u)) {
-      u = u.replace(/SDate=[^&]*/, 'SDate=' + start).replace(/EDate=[^&]*/, 'EDate=' + end);
-      await p.goto(u, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
-      await p.waitForTimeout(2000);
-    }
-    const res = await p.evaluate((nm) => {
-      const out = {}; let docs = 0, matched = 0;
-      for (const el of document.querySelectorAll('tr, li, [class*=doc], [class*=list] > div')) {
-        const t = (el.innerText || '').replace(/\s+/g, ' ');
-        if (!/출퇴근시간수정/.test(t)) continue;
-        docs++;
-        if (!t.includes('신청자 ' + nm)) continue;
-        matched++;
-        const m = t.match(/출퇴근시간수정\s*(대기|승인|반려)?[\s\S]*?신청 내용\s*(\d{4}-\d{2}-\d{2})[\s\S]*?\(신청\)\s*(\d{1,2}:\d{2})\s*~\s*(\d{1,2}:\d{2})/);
-        if (m && m[1] !== '반려' && !out[m[2]]) out[m[2]] = { status: m[1] || '확인', reqIn: m[3], reqOut: m[4] };
-      }
-      return { out, docs, matched };
-    }, myName);
-    // 출퇴근시간수정 문서는 있는데 내 이름으로 하나도 안 잡히면 마크업/이름형식 변경 의심 → 신뢰불가
-    const ok = !(res.docs > 0 && res.matched === 0);
-    log(`이미 신청된 정정 ${Object.keys(res.out).length}건 (문서 ${res.docs}·매칭 ${res.matched}${ok ? '' : ' ⚠확인불가'})`);
-    return { byDate: res.out, ok, reason: ok ? '' : '신청자 매칭 0' };
-  } catch (e) { log('결재함 조회 실패: ' + e.message.split('\n')[0]); return { byDate: {}, ok: false, reason: '조회 실패' }; }
-  finally { await ctx.close().catch(() => {}); }
-}
+const USER_AUTH = authPath('timeinout-user.json');
 
 // 정정 규칙: 출근 최대 10:30(애매하면 10:30) · 퇴근 최소 18:00 · 근무 9시간 보장
 const EARLIEST_IN = 360, LATEST_IN = 630, EARLIEST_OUT = 1080, MIN_WORK = 540; // 분 (06:00 / 10:30 / 18:00 / 9h)

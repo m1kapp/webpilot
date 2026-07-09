@@ -118,12 +118,12 @@
   .mini-spin { display:none; width:13px; height:13px; border:2px solid rgba(255,255,255,.22); border-top-color:#8fa2ff; border-radius:50%; animation:spin .7s linear infinite; }
   .browser.loading .mini-spin { display:inline-block; }
   .viewport { position:relative; flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; background:#fff; }
-  .viewport > img { width:100%; height:auto; display:block; }
+  .viewport > img { width:100%; height:auto; display:block; margin:0 auto; }
   .scrim { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:16px; background:rgba(244,246,251,.97); color:#465; font-size:14px; }
   .spinner { width:36px; height:36px; border:3px solid #d3d9e8; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  .playbar { display:flex; align-items:center; gap:12px; padding:11px 16px; background:#f4f6fb; color:#55607a; border-top:1px solid #e6e9f5; }
+  .playbar { display:flex; align-items:center; gap:12px; padding:11px 16px; background:#f4f6fb; color:#55607a; border-top:1px solid #e6e9f5; flex:0 0 auto; }
   .playbar .cap { font-size:13px; font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .playbar .nav { background:#e7eaf3; color:#6b7385; width:28px; height:28px; border-radius:8px; font-size:16px; line-height:1; padding:0; }
   .playbar .nav:hover:not(:disabled) { background:#dde1ee; color:var(--ink); }
@@ -142,7 +142,7 @@
   /* 브라우저 안 로그인 화면 */
   .page-login { position:absolute; inset:0; display:flex; overflow-y:auto; padding:24px 0;
     background:radial-gradient(1200px 500px at 50% -10%, #eef2fb, #f7f8fc); }
-  .lp { margin:auto; width:min(430px,88%); background:#fff; border:1px solid #eaedf6; border-radius:18px;
+  .lp { margin:min(11vh,96px) auto auto; width:min(430px,88%); background:#fff; border:1px solid #eaedf6; border-radius:18px;
     padding:34px 32px 30px; box-shadow:0 20px 48px -16px rgba(60,58,140,.22); }
   .lp .brand { font-size:21px; font-weight:800; letter-spacing:-.4px; margin-bottom:3px; }
   .lp .brand span { font-size:12px; font-weight:500; color:var(--muted); letter-spacing:0; }
@@ -190,7 +190,7 @@
           <div class="sub" id="lp-sub">저장된 계정으로 브라우저가 대신 접속해 데이터를 수집·분석합니다.</div>
           <div id="lp-acct" class="acct-chip"></div>
           <input id="month" type="month" style="width:100%" />
-          <button id="go">🛫 Take off</button>
+          <button id="go">🛫 Fly</button>
           <div id="status"></div>
         </div>
       </div>
@@ -232,8 +232,8 @@
       <h2>출퇴근 시각 분포</h2>
       <canvas id="clock" height="120"></canvas>
       <p style="color:var(--muted);font-size:12px;margin:12px 0 0">
-        평일: <b style="color:#3b6fe0">근무 4h</b> → <b>점심 1h</b> → <b style="color:#3b6fe0">근무 4h</b> → <b>저녁 30m</b> → <b style="color:#e0503b">나머지=야근</b> ·
-        <b style="color:#8b5cf6">휴일근무=보라</b> · <b style="color:#22c55e">휴가=초록</b> · <b style="color:#06b6d4">정정=청록</b> · <b style="color:#aab1bf">기록누락=회색</b> · 막대는 <b>찐 퇴근</b> · 24h 위=<b>익일 퇴근</b>
+        평일: <b style="color:#4b62d6">근무 4h</b> → <b>점심 1h</b> → <b style="color:#4b62d6">근무 4h</b> → <b>저녁 30m</b> → <b style="color:#e5544c">나머지=야근</b> ·
+        <b style="color:#c2362b">휴일근무</b> · <b style="color:#2f9d70">휴가</b> · <b style="color:#1f93b0">정정</b> · <b style="color:#c9a94e">공휴일</b>(근로자의날·대체 등) · <b style="color:#7f8bd0">출장</b>(외근) · 기록누락=연회색 · 막대는 <b>찐 퇴근</b> · 아래로 길수록 <b>야근</b> · 24h 아래=<b>익일 퇴근</b>
       </p>
     </div>
       </div><!-- #dash-timeinout -->
@@ -478,7 +478,7 @@ function updateAcctChip() {
     return `<div class="row"><span class="sdot ${a.saved ? 'ok' : 'no'}"></span><b>${esc(SVC_NAME[s])}</b> <span style="color:${a.saved ? '#5a6172' : '#c07d13'}">· ${detail}</span></div>`;
   }).join('');
   const missing = svcs.filter(s => !(accounts[s] || {}).saved);
-  $('lp-acct').innerHTML = rows + (missing.length ? `<div style="margin-top:5px;color:#c07d13">→ 상단 <b>승객정보</b> 탭에서 등록하세요</div>` : '');
+  $('lp-acct').innerHTML = rows + (missing.length ? `<div style="margin-top:5px;color:#c07d13">→ 상단 <b>계정 연결</b> 탭에서 등록하세요</div>` : '');
   $('go').disabled = missing.length > 0;
 }
 function resetToLogin() {
@@ -494,7 +494,7 @@ function resetToLogin() {
   $('p-dots').innerHTML = ''; $('p-prev').disabled = true; $('p-next').disabled = true;
   $('status').textContent = '';
 }
-const hhmm = (dec) => { if (dec == null) return ''; const over = dec >= 24; const d = over ? dec - 24 : dec; const h = Math.floor(d); const m = Math.round((d - h) * 60); return `${over ? '익일 ' : ''}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
+const hhmm = (dec) => { if (dec == null) return ''; let total = Math.round(dec * 60); let over = false; if (total >= 1440) { total -= 1440; over = true; } const h = Math.floor(total / 60); const m = total % 60; return `${over ? '익일 ' : ''}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
 const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2,'0')}분`;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -504,7 +504,7 @@ async function streamRun(endpoint, body, opts = {}) {
   $('go').disabled = true;
   slides = []; curData = null; curIdx = 0; dashRendered = false; hasResult = false;
   $('dash').style.display = 'none';
-  $('player').style.display = 'block';
+  $('player').style.display = 'flex'; // .browser는 flex column — block으로 덮으면 viewport/playbar 높이 깨짐
   $('player').classList.remove('fade', 'result');
   $('player').classList.add('loading');
   $('p-login').style.display = 'none';
@@ -553,7 +553,7 @@ async function streamRun(endpoint, body, opts = {}) {
 // 필요한 계정이 다 저장됐는지 확인 (아니면 계정관리 탭으로)
 function ensureAccounts() {
   const missing = (activeRecipe.services || []).filter(s => !(accounts[s] || {}).saved);
-  if (missing.length) { $('status').textContent = `⚠ 승객정보에서 ${missing.map(s => SVC_NAME[s]).join(', ')} 등록 필요`; switchTab('accounts'); return false; }
+  if (missing.length) { $('status').textContent = `⚠ 계정 연결에서 ${missing.map(s => SVC_NAME[s]).join(', ')} 등록 필요`; switchTab('accounts'); return false; }
   return true;
 }
 async function load() {
@@ -788,11 +788,12 @@ function renderTimeinout(d) {
   // 합계 규칙: 누락/의심일은 전부 제외(회색), 정정일은 토글 ON이면 제외(청록)
   // → 각 KPI가 그래프에 보이는 색 영역의 합과 정확히 일치
   const exclude = $('excludeCorrected').checked;
-  const missDays = d.days.filter(x => x.missing);
-  let ot = 0, hol = 0; const corrDays = [];
+  const corrDays = d.days.filter(x => x.corrected);              // 정정 신청·승인된 날 (누락 여부 무관)
+  const missDays = d.days.filter(x => x.missing && !x.corrected); // 정정 신청한 날은 누락 목록에서 제외
+  let ot = 0, hol = 0;
   for (const x of d.days) {
-    if (x.missing) continue;                                     // 누락/의심 → 모든 합계 제외
-    if (x.corrected) { corrDays.push(x); if (exclude) continue; } // 정정 제외 ON → 합계 제외
+    if (x.missing) continue;                   // 누락/의심 → 모든 합계 제외
+    if (x.corrected && exclude) continue;      // 정정 제외 ON → 합계 제외
     hol += x.holMin;
     ot += x.otMin;
   }
@@ -842,6 +843,9 @@ function renderTimeinout(d) {
   const corr = d.days.map(x => x.corrected ? x.correctReason : '');
   const corrDay = d.days.map(x => x.corrected);
   const miss = d.days.map(x => x.missing);
+  const holDay = d.days.map(x => x.holiday && !x.weekend && !(x.holMin > 0 && x.inH != null));
+  const tripDay = d.days.map(x => x.isTrip && x.inH == null);
+  const tripLabel = d.days.map(x => x.isTrip ? `${x.tripType || '출장'}${x.tripPlace ? ' · ' + x.tripPlace : ''}${x.tripRegion ? ' (' + x.tripRegion + ')' : ''}` : '');
   const isLv = d.days.map(x => x.isLeave);
   const lvTxt = d.days.map(x => x.isLeave ? `${x.leaveType}${x.leaveDetail ? ' ' + x.leaveDetail : ''}` : '');
 
@@ -856,9 +860,15 @@ function renderTimeinout(d) {
     return { base:inH, am, lunch, pm, dinner, ot:Math.max(0, sp), hol:0, leave:0, corr:0, miss:0 };
   };
   const empty = { base:0, am:0, lunch:0, pm:0, dinner:0, ot:0, hol:0, leave:0, corr:0, miss:0 };
+  const hh2dec = (s) => { const m = /(\d{1,2}):(\d{2})/.exec(s || ''); return m ? +m[1] + (+m[2]) / 60 : null; };
   const S = d.days.map(x => {
     // 정정된 날: 제외 토글 ON이면 청록 통짜(합계 제외), OFF면 아래 일반 근무로 취급(합계 포함)
     if (x.corrected && x.inH != null && exclude) return { ...empty, base:x.inH, corr:x.outH - x.inH };
+    // 정정 신청됐지만 펀치가 아직 없는 날(대기중): 신청한 출퇴근 시각대로 청록 표시
+    if (x.corrected && x.inH == null) {
+      const ci = hh2dec(x.corrIn), co = hh2dec(x.corrOut);
+      if (ci != null && co != null) return { ...empty, base:ci, corr:(co < ci ? co + 24 : co) - ci };
+    }
     // 기록 누락(펀치없음·한쪽만·이상치·결근) → 회색. 반차/반반차면 휴가 초록 + 누락 회색으로 09~18
     if (x.missing) {
       if (x.isLeave && x.leaveDays < 1) {
@@ -875,50 +885,68 @@ function renderTimeinout(d) {
     // 휴일·대체공휴일 근무는 출근~퇴근 전체를 보라 단독 막대로
     if (x.holiday && x.holMin > 0 && x.inH != null)
       return { ...empty, base:x.inH, hol:x.outH - x.inH };
+    // 평일 공휴일(근로자의 날·대체공휴일 등, 근무X) → 옅은 '공휴일' 블록 09~18 (주말은 빈칸 유지)
+    if (x.holiday && !x.weekend) return { ...empty, base:9, hday:9 };
     if (x.holiday) return empty;
+    // 출장·외근(펀치 없음) → '출장' 블록 09~18 (기록누락과 구분)
+    if (x.isTrip && x.inH == null) return { ...empty, base:9, trip:9 };
     return seg(x.inH, x.outH);
   });
   const inT = d.days.map(x => x.inText), outT = d.days.map(x => x.outText);
   const sus = d.days.map(x => x.suspect);
   const yMax = Math.max(24, Math.ceil(Math.max(...d.days.map(x => x.outH || 0)) + 1));
   const T = 'rgba(0,0,0,0)';
+  // 스택 세그먼트 공통 스타일: 2px 서피스 갭 + 둥근 끝 (까리하게)
+  const SEG = { borderColor:'#ffffff', borderWidth:0, borderRadius:2, borderSkipped:false };
   if (clock) clock.destroy();
   clock = new Chart($('clock'), {
     type:'bar',
     data:{ labels, datasets:[
-      { label:'_base', data:S.map(s=>s.base), backgroundColor:T, stack:'t' },
-      { label:'근무', data:S.map(s=>s.am), backgroundColor:'#3b6fe0', stack:'t' },
-      { label:'점심(1h)', data:S.map(s=>s.lunch), backgroundColor:'#c9d2e4', stack:'t' },
-      { label:'_근무2', data:S.map(s=>s.pm), backgroundColor:'#3b6fe0', stack:'t' },
-      { label:'저녁(30m)', data:S.map(s=>s.dinner), backgroundColor:'#f0c48a', stack:'t' },
-      { label:'야근', data:S.map(s=>s.ot), backgroundColor:'#e0503b', stack:'t' },
-      { label:'휴일근무', data:S.map(s=>s.hol), backgroundColor:'#8b5cf6', stack:'t' },
-      { label:'휴가', data:S.map(s=>s.leave), backgroundColor:'#22c55e', stack:'t' },
-      { label:'정정', data:S.map(s=>s.corr), backgroundColor:'#06b6d4', stack:'t' },
-      { label:'기록누락', data:S.map(s=>s.miss), backgroundColor:'#c3c9d4', stack:'t' },
+      { label:'_base', data:S.map(s=>s.base), backgroundColor:T, stack:'t', borderWidth:0 },
+      { label:'근무', data:S.map(s=>s.am), backgroundColor:'#4b62d6', stack:'t', ...SEG },
+      { label:'점심(1h)', data:S.map(s=>s.lunch), backgroundColor:'rgba(75,98,214,0.22)', stack:'t', ...SEG },
+      { label:'_근무2', data:S.map(s=>s.pm), backgroundColor:'#4b62d6', stack:'t', ...SEG },
+      { label:'저녁(30m)', data:S.map(s=>s.dinner), backgroundColor:'rgba(75,98,214,0.16)', stack:'t', ...SEG },
+      { label:'야근', data:S.map(s=>s.ot), backgroundColor:'#e5544c', stack:'t', ...SEG },
+      { label:'휴일근무', data:S.map(s=>s.hol), backgroundColor:'#c2362b', stack:'t', ...SEG },
+      { label:'휴가', data:S.map(s=>s.leave), backgroundColor:'#2f9d70', stack:'t', ...SEG },
+      { label:'공휴일', data:S.map(s=>s.hday||0), backgroundColor:'#ecdca9', stack:'t', ...SEG },
+      { label:'출장', data:S.map(s=>s.trip||0), backgroundColor:'#9aa8e0', stack:'t', ...SEG },
+      { label:'정정', data:S.map(s=>s.corr), backgroundColor:'#1f93b0', stack:'t', ...SEG },
+      { label:'기록누락', data:S.map(s=>s.miss), backgroundColor:'#eceef4', stack:'t', ...SEG },
     ]},
     options:{ animation:false,
-      scales:{ x:{ stacked:true }, y:{ stacked:true, min:6, max:yMax, title:{display:true,text:'시각 (24h 위=익일)'},
-        ticks:{ stepSize:2, callback:(v)=> v>=24 ? '익일 '+hhmm(v-24) : hhmm(v) } } },
+      datasets:{ bar:{ barPercentage:0.82, categoryPercentage:0.6 } },
+      layout:{ padding:{ top:4 } },
+      scales:{
+        x:{ stacked:true, grid:{ display:false }, border:{ display:false }, ticks:{ color:'#8a92a6', font:{ size:11 } } },
+        y:{ stacked:true, reverse:true, min:6, max:yMax, title:{ display:true, text:'시각 (아래로 갈수록 늦은 시각)', color:'#9aa1b5', font:{ size:11 } },
+          grid:{ color:'#f1f3f8', drawTicks:false }, border:{ display:false },
+          ticks:{ stepSize:2, color:'#9aa1b5', font:{ size:11 }, padding:6, callback:(v)=> v>=24 ? '익일 '+hhmm(v-24) : hhmm(v) } } },
       plugins:{
-        legend:{ position:'top', labels:{ filter:(it)=> !it.text.startsWith('_') } },
+        legend:{ position:'top', align:'start', labels:{ usePointStyle:true, pointStyle:'circle', boxWidth:7, boxHeight:7, padding:12, color:'#5b6478', font:{ size:11.5 }, filter:(it)=> !it.text.startsWith('_') } },
         annotation:{ annotations:{
-          l9:{ type:'line', yMin:9, yMax:9, borderColor:'#c4cbda', borderWidth:1, borderDash:[5,4] },
-          l18:{ type:'line', yMin:18, yMax:18, borderColor:'#c4cbda', borderWidth:1, borderDash:[5,4] },
-          l24:{ type:'line', yMin:24, yMax:24, borderColor:'#e0503b', borderWidth:1.2 },
+          l9:{ type:'line', yMin:9, yMax:9, borderColor:'#e6e9f1', borderWidth:1, borderDash:[4,4] },
+          l18:{ type:'line', yMin:18, yMax:18, borderColor:'#e6e9f1', borderWidth:1, borderDash:[4,4] },
+          l24:{ type:'line', yMin:24, yMax:24, borderColor:'#e5544c', borderWidth:1, borderDash:[2,3] },
         } },
         tooltip:{ filter:(i)=> !i.dataset.label.startsWith('_') && i.raw > 0,
           callbacks:{
             title:(i)=>{ const k = i[0].dataIndex;
               if (corrDay[k]) return `정정 · ${corr[k]}`;
               if (miss[k]) return status[k] || '기록 누락';
+              if (holDay[k]) return `🏖 ${status[k] || '공휴일'}`;
+              if (tripDay[k]) return `✈ ${tripLabel[k]}`;
               if (isLv[k]) return `휴가 · ${lvTxt[k]}`;
               return `${inT[k]} ~ ${outT[k]}`; },
             label:(i)=>{ const L = i.dataset.label;
               if (L === '휴가') return lvTxt[i.dataIndex];
-              if (L === '정정') return `정정됨: ${inT[i.dataIndex]}~${outT[i.dataIndex]}`;
+              if (L === '정정') { const k = i.dataIndex, x = d.days[k];
+                return inT[k] ? `정정됨: ${inT[k]}~${outT[k]}` : `정정 신청: ${x.corrIn}~${x.corrOut}${x.correctStatus ? ` (${x.correctStatus})` : ''}`; }
               if (L === '기록누락') return sus[i.dataIndex] ? '펀치 이상(미체크아웃 의심)' : '펀치 기록 없음/불완전';
-              return `${L}: ${Math.round(i.raw*60)}분`; },
+              if (L === '공휴일') return '유급휴일 (근무일 아님)';
+              if (L === '출장') return tripLabel[i.dataIndex] || '출장·외근';
+              return `${L}: ${fmtMin(Math.round(i.raw*60))}`; },
             afterBody:(i)=> (miss[i[0].dataIndex] && isLv[i[0].dataIndex]) ? '반차 외 근무기록 누락' : '',
           } },
       },

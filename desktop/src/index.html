@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Webwing</title>
+<style>
+  html, body { height:100%; margin:0; }
+  body { display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:radial-gradient(1200px 500px at 50% -10%, #eef2fb, #f7f8fc); color:#465; }
+  .spin { width:34px; height:34px; border:3px solid #d3d9e8; border-top-color:#3b6fe0; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  p { font-size:14px; color:#6b7385; }
+</style>
+</head>
+<body>
+  <div class="spin"></div>
+  <p id="msg">webwing 준비 중…</p>
+</body>
+</html>

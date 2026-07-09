@@ -1,15 +1,20 @@
 // 비즈플레이 레시피: 로그인 → 카드영수증 앱 → 법인카드 '대기(미결의)' 조회/상신
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getBrowser, snap } from './browser.mjs';
 import { getOvertimeEmployee, fmt } from './timeinout.mjs';
 import { getSubmittedCorrections } from './correction.mjs';
+import { authPath, ensureAuthDir, dataDir } from './paths.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url)); // src/lib — 앱 리소스(읽기전용) 경로용, CWD 무관
 
 // 타임인아웃 로고(파비콘) → 증빙 이미지에 출처 표기용 (base64 인라인)
 let TIMEINOUT_LOGO = '';
-try { TIMEINOUT_LOGO = 'data:image/png;base64,' + readFileSync('public/icons/timeinout.png').toString('base64'); } catch {}
+try { TIMEINOUT_LOGO = 'data:image/png;base64,' + readFileSync(join(__dirname, '..', '..', 'public/icons/timeinout.png')).toString('base64'); } catch {}
 
 const HOST = 'https://www.bizplay.co.kr';
-const AUTH = '.auth/bizplay.json';
+const AUTH = authPath('bizplay.json');
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const hourOf = (d) => { const m = String(d).match(/\s(\d{1,2}):/); return m ? +m[1] : -1; };
@@ -40,10 +45,10 @@ function yasikClass(item, rec) {
 const APPR_LINE = '법인카드 지출결의서'; // 결재선 팝업에서 명시 선택 (최근결재선 의존 제거)
 
 // ── 사용자 정의 규칙(패턴→자동화 등록) 영속 저장. 사용처 포함 매칭. ──
-const USER_RULES_FILE = '.auth/user-rules.json';
+const USER_RULES_FILE = authPath('user-rules.json');
 const normMerchant = (m) => String(m || '').replace(/[_\-]?\s*\d+\s*$/, '').replace(/\((법인|주|유|개인)\)/g, '').replace(/\s+/g, ' ').trim();
 export function readUserRules() { try { return JSON.parse(readFileSync(USER_RULES_FILE, 'utf8')); } catch { return []; } }
-export function writeUserRules(rules) { mkdirSync('.auth', { recursive: true }); writeFileSync(USER_RULES_FILE, JSON.stringify(rules, null, 2)); }
+export function writeUserRules(rules) { ensureAuthDir(); writeFileSync(USER_RULES_FILE, JSON.stringify(rules, null, 2)); }
 // 사용자 규칙 → 정적 규칙과 동일 shape. keywords(여러 사용처) 중 하나라도 포함되면 매칭(번들 자동화)
 const ruleKeywords = (u) => (u.keywords && u.keywords.length ? u.keywords : [u.keyword]).filter(Boolean);
 const matchKeyword = (merchant, kw) => String(merchant || '').includes(kw) || normMerchant(merchant).includes(normMerchant(kw));
@@ -73,7 +78,7 @@ async function loginBizplay(ctx, { id, pw }, snapshots) {
   if (await captcha()) { await p.close(); throw new Error('캡차가 나타났어요 — 시도를 줄이거나 브라우저에서 직접 로그인 후 다시 시도해 주세요'); }
   if (/login/i.test(p.url())) { await p.close(); throw new Error('로그인 실패 — 아이디/비번 확인'); }
   await snap(p, '비즈플레이 홈 · 앱 런처', snapshots);
-  mkdirSync('.auth', { recursive: true });
+  ensureAuthDir();
   await ctx.storageState({ path: AUTH });
   return p;
 }
@@ -497,8 +502,9 @@ async function renderYagunTableImage(rows, mode, month) {
         <span>출처: <b style="color:#8f98a8">타임인아웃</b> (user.timeinout.kr) · ${isPending ? '출퇴근 정보수정 요청' : '근태 출퇴근 기록'} · webwing 자동 생성</span></div>
     </div>`);
     const buf = await pg.locator('#card').screenshot({ type: 'png' });
-    mkdirSync('.tmp', { recursive: true });
-    const path = `.tmp/yagun-table-${month}.png`;
+    const tmpDir = join(dataDir(), '.tmp');
+    mkdirSync(tmpDir, { recursive: true });
+    const path = join(tmpDir, `yagun-table-${month}.png`);
     writeFileSync(path, buf);
     return path;
   } finally { await pg.close().catch(() => {}); }
