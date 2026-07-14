@@ -271,18 +271,6 @@
       <div class="kpi"><div class="l">휴일 근무 시간 (예외)</div><div class="v" id="k-hol">-</div><div class="l" id="k-hol-sub"></div></div>
     </div>
 
-    <div class="card" id="leaveCard" style="display:none">
-      <h2>연차 현황 (내 것)</h2>
-      <div class="kpis" id="leave-kpis" style="margin-bottom:14px"></div>
-      <div class="bz-wrap">
-        <table class="bz-table" id="leave-hist-table">
-          <thead><tr><th>날짜</th><th>구분</th><th style="text-align:right">일수</th></tr></thead>
-          <tbody id="leave-hist-body"></tbody>
-        </table>
-      </div>
-      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 개인 페이지 기준(본인 것만) · 언제 썼고 얼마나 남았는지.</p>
-    </div>
-
     <div class="card" id="clockCard">
       <h2>출퇴근 시각 분포</h2>
       <canvas id="clock" height="120"></canvas>
@@ -424,6 +412,24 @@
           <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃은 <b>연차 발생·잔여를 추적하지 않음</b> — 여기 나오는 숫자는 전부 <b>이번 해 사용량</b>입니다.</p>
         </div>
       </div>
+      <div id="dash-leave-personal" style="display:none">
+        <div class="card">
+          <h2>얼마나 남았는지</h2>
+          <div class="kpis" id="lv-kpis"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>언제 썼는지</span><span style="font-size:13px;font-weight:600;color:var(--muted)" id="lv-count"></span>
+          </h2>
+          <div class="bz-wrap">
+            <table class="bz-table" id="lv-hist-table">
+              <thead><tr><th>날짜</th><th>구분</th><th style="text-align:right">일수</th></tr></thead>
+              <tbody id="lv-hist-body"></tbody>
+            </table>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 개인 페이지 기준(본인 것만) · 이 해에 쓴 연차 전체.</p>
+        </div>
+      </div>
       <div id="dash-correction" style="display:none">
         <div class="kpis" style="margin-bottom:16px">
           <div class="kpi"><div class="l">누락일</div><div class="v bad" id="cr-count">-</div><div class="l" id="cr-sub"></div></div>
@@ -529,6 +535,10 @@ const RECIPES = [
     brand: '· 연차 현황 (관리자 전용)', desc: '<b>관리자 권한</b>이 있는 계정만 사용 가능 — 일반 직원 계정으로는 로그인이 거부돼요. 올해 연차 사용 내역을 달력·인원별 요약으로 한 번에 조회합니다.',
     endpoint: '/api/leaves/company/stream', creds: 'timeinout', loginUrl: 'com.timeinout.kr',
     resultUrl: (d) => `webwing · 연차 현황 · ${d.month}`, resultCap: '✓ 연차 현황' },
+  { id: 'leave-personal', icon: '/icons/timeinout.png', label: '연차 현황 (개인용)', sub: '내 연차 · 잔여·사용이력', services: ['timeinout'],
+    brand: '· 연차 현황 (개인용)', desc: '로그인하면 <b>타임인아웃</b> 내 페이지에서 <b>잔여 연차</b>와 <b>이 해에 쓴 날짜들</b>을 가져옵니다. 관리자 권한 불필요, 초과근무 분석과는 별개로 가볍게 조회.',
+    endpoint: '/api/leaves/mine/stream', creds: 'timeinout', loginUrl: 'user.timeinout.kr',
+    resultUrl: (d) => `webwing · 연차 현황(개인) · ${d.month}`, resultCap: '✓ 연차 현황(개인)' },
 ];
 const SVC = { timeinout: '/icons/timeinout.png', bizplay: '/icons/bizplay.png', flow: '/icons/flow.ico' };
 const SVC_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'flow.team' };
@@ -746,7 +756,7 @@ function onResult(d) {
 }
 
 function render(d) {
-  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction', 'dash-company-leaves']) $(id).style.display = 'none';
+  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction', 'dash-company-leaves', 'dash-leave-personal']) $(id).style.display = 'none';
   if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
@@ -755,6 +765,7 @@ function render(d) {
   else if (d.recipe === 'correction') { $('dash-correction').style.display = 'block'; renderCorrection(d); }
   else if (d.recipe === 'correction-submit') { $('dash-correction').style.display = 'block'; renderCorrectionSubmit(d); }
   else if (d.recipe === 'company-leaves') { $('dash-company-leaves').style.display = 'block'; renderCompanyLeaves(d); }
+  else if (d.recipe === 'leave-personal') { $('dash-leave-personal').style.display = 'block'; renderLeavePersonal(d); }
   else { $('dash-timeinout').style.display = 'block'; renderTimeinout(d); }
 }
 function renderCorrectionSubmit(d) {
@@ -999,22 +1010,23 @@ function renderPattern(d) {
     || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">이 자동화에 걸린 대기건이 없어요 🎉</td></tr>';
   $('pt-go').disabled = !s.count;
 }
-function renderLeaveCard(d) {
-  const card = $('leaveCard');
-  if (!d.leaveBalance || !d.leaveBalance.length) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  $('leave-kpis').innerHTML = d.leaveBalance.map(b => `
-    <div class="kpi"><div class="l">${esc(b.type)}</div><div class="v">${b.remaining}<span style="font-size:14px;color:var(--muted);font-weight:600"> / ${b.total}일</span></div><div class="l">만료 ${esc(b.expire)}</div></div>`).join('');
+// 연차 현황(개인용) — "얼마나 남았고"(잔여)와 "언제 썼는지"(사용이력)를 카드째 분리해서 딱딱 보여줌
+function renderLeavePersonal(d) {
+  lastData = d;
+  const bal = d.leaveBalance || [];
+  $('lv-kpis').innerHTML = bal.length ? bal.map(b => `
+    <div class="kpi"><div class="l">${esc(b.type)} · 남은 연차</div><div class="v">${b.remaining}<span style="font-size:14px;color:var(--muted);font-weight:600"> / ${b.total}일</span></div><div class="l">만료 ${esc(b.expire)}</div></div>`).join('')
+    : '<div class="kpi"><div class="l">잔여 정보 없음</div><div class="v">-</div></div>';
   const hist = d.leaveHistory || [];
-  $('leave-hist-body').innerHTML = hist.map(h => `<tr>
+  $('lv-count').textContent = hist.length + '건';
+  $('lv-hist-body').innerHTML = hist.map(h => `<tr>
     <td>${esc(h.date)}${h.dow ? `(${esc(h.dow)})` : ''}</td><td>${esc(h.detail)}</td><td style="text-align:right">${h.days}</td></tr>`).join('')
-    || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:16px">이 해에 쓴 연차가 없어요</td></tr>';
+    || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:20px">이 해에 쓴 연차가 없어요</td></tr>';
 }
 function renderTimeinout(d) {
   lastData = d;
   $('kpis').style.display = 'flex';
   $('clockCard').style.display = 'block';
-  renderLeaveCard(d);
 
   // 합계 규칙: 누락/의심일은 전부 제외(회색), 정정일은 토글 ON이면 제외(청록)
   // → 각 KPI가 그래프에 보이는 색 영역의 합과 정확히 일치

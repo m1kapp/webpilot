@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 const __dirname = dirname(fileURLToPath(import.meta.url)); // pkg 스냅샷/일반 실행 양쪽 정적경로
-import { getOvertime, getOvertimeEmployee, getCompanyLeaves, closeBrowser } from './src/lib/timeinout.mjs';
+import { getOvertime, getOvertimeEmployee, getCompanyLeaves, getEmployeeLeaveStatus, closeBrowser } from './src/lib/timeinout.mjs';
 import { getCardPending, submitExpenses, getYagunTaxi, getYasik, getRulePending, readUserRules, writeUserRules } from './src/lib/bizplay.mjs';
 import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
 import { dataDir, authPath, ensureAuthDir } from './src/lib/paths.mjs';
@@ -148,6 +148,27 @@ app.post('/api/leaves/company/stream', async (req, res) => {
     send({ type: 'result', data });
   } catch (e) {
     console.error('company-leaves 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
+// 연차 현황 (개인용): 본인 로그인만으로 잔여/전체/만료일 + 연간 사용이력 — admin 불필요, 초과근무 분석과 분리된 가벼운 조회
+app.post('/api/leaves/mine/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '', historyKey = 'leave-personal' } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [leave-personal] 연차 현황(개인) / ${month}`);
+    const data = await getEmployeeLeaveStatus({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('leave-personal 실패:', e.message);
     send({ type: 'error', error: e.message });
   }
   res.end();

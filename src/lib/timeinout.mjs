@@ -640,9 +640,29 @@ export async function getOvertimeEmployee({ month, id, pw, onSnapshot }) {
       corrections[Number(date.slice(8, 10))] = { reason: `출퇴근수정 ${v.status}`, status: v.status, reqIn: v.reqIn, reqOut: v.reqOut };
     }
     console.error('[timeinout] 완료 — 결과 전송');
-    return { name: '본인', mode: 'employee', corrections, leaves, leaveBalance, leaveHistory, trips, snapshots, ...analyzeEmployee(cards, month, corrections, leaves, trips) };
+    return { name: '본인', mode: 'employee', corrections, leaves, trips, snapshots, ...analyzeEmployee(cards, month, corrections, leaves, trips) };
   } finally {
     await ctx.close().catch(() => {}); // 컨텍스트만 닫고 브라우저는 재사용
+  }
+}
+
+// 연차 현황(개인용): 초과근무 분석과 분리된 가벼운 조회 — 로그인 + 휴가 페이지만(카드·출장·정정 스킵)
+// 잔여/전체/만료일 + 연간 사용이력만 필요할 때 씀. admin 권한 불필요, 본인 로그인만 있으면 됨.
+export async function getEmployeeLeaveStatus({ month, id, pw, onSnapshot }) {
+  const creds = { id: id || process.env.TIMEINOUT_ID, pw: pw || process.env.TIMEINOUT_PW };
+  const snapshots = [];
+  if (onSnapshot) snapshots.onSnap = onSnapshot;
+  const browser = await getBrowser();
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+  try {
+    console.error('[timeinout] 로그인 중…');
+    await loginUser(ctx, creds, snapshots);
+    console.error('[timeinout] 휴가 내역 조회 중…');
+    const { balance: leaveBalance, history: leaveHistory } = await fetchEmployeeLeaves(ctx, month, snapshots);
+    console.error('[timeinout] 완료 — 결과 전송');
+    return { recipe: 'leave-personal', name: '본인', month, leaveBalance, leaveHistory, snapshots, summary: { types: leaveBalance.length, used: leaveHistory.length } };
+  } finally {
+    await ctx.close().catch(() => {});
   }
 }
 
