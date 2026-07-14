@@ -65,6 +65,27 @@
   .bz-table td.amt { text-align:right; font-variant-numeric:tabular-nums; }
   .bz-table td.neg { color:var(--red); }
   .bz-wrap { max-height:380px; overflow:auto; }
+  /* 연차 현황 · 달력 */
+  .cal-month { margin-bottom:22px; }
+  .cal-month:last-child { margin-bottom:0; }
+  .cal-month-title { font-size:14px; font-weight:700; color:var(--ink); margin-bottom:8px; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; }
+  .cal-dow { text-align:center; font-size:11px; color:var(--muted); font-weight:600; padding:2px 0 6px; }
+  .cal-cell { min-height:78px; border:1px solid #eef0f6; border-radius:10px; padding:6px; background:#fff; }
+  .cal-cell.other-month { visibility:hidden; }
+  .cal-cell.weekend { background:#fafbfd; }
+  .cal-cell.holiday { background:#fdf1f1; border-color:#f2d0d0; }
+  .cal-date { font-size:11px; color:#8a93a6; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:4px; }
+  .cal-cell.holiday .cal-date { color:#c2362b; }
+  .cal-hol-label { font-size:9.5px; font-weight:600; color:#c2362b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:64px; }
+  .cal-chip { font-size:10.5px; background:#eaf0ff; color:#2f4bb8; border-radius:6px; padding:2px 5px; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; }
+  .cal-chip-type { color:#7788c9; font-size:9.5px; }
+  .cal-more { font-size:9.5px; color:#8a93a6; padding-left:2px; }
+  #cl-summary-table th:first-child, #cl-summary-table td:first-child,
+  #cl-monthly-table th:first-child, #cl-monthly-table td:first-child { width:84px; min-width:84px; white-space:nowrap; }
+  .cl-half-toggle { display:inline-flex; background:#eef0f6; border-radius:8px; padding:2px; gap:2px; }
+  .cl-half-toggle button { background:transparent; color:#8a93a6; padding:5px 12px; font-size:12px; font-weight:600; border-radius:6px; }
+  .cl-half-toggle button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08); }
   .controls { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:18px; }
   .controls label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
   input { padding:11px 13px; border:1px solid #d9dcec; border-radius:10px; font-size:14px; color:var(--ink); background:#fff; transition:.15s; }
@@ -147,6 +168,23 @@
   .lp .brand { font-size:21px; font-weight:800; letter-spacing:-.4px; margin-bottom:3px; }
   .lp .brand span { font-size:12px; font-weight:500; color:var(--muted); letter-spacing:0; }
   .lp .sub { font-size:12.5px; line-height:1.55; color:var(--muted); margin-bottom:22px; }
+  .lp-wordmark { font-size:13px; font-weight:700; color:#aab1c2; letter-spacing:-.2px; margin-bottom:14px; }
+  .lp-badge-card { display:flex; flex-direction:column; align-items:center; text-align:center; gap:5px; margin-bottom:16px; }
+  .lp-badge-card .ic-row { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+  /* 앱 아이콘 하나하나가 같은 크기·패딩을 그대로 유지 — 1개든 2개든 "앱 + 앱"으로 나란히, 억지로 하나로 합치지 않음 */
+  .lp-badge-card .app-ic { width:56px; height:56px; border-radius:15px; display:flex; align-items:center; justify-content:center;
+    background:#fff; box-shadow:0 1px 6px rgba(30,40,80,.14); flex:none; }
+  .lp-badge-card .app-ic img { width:34px; height:34px; object-fit:contain; }
+  .lp-badge-card .ic-row .plus { color:#aab1c2; font-size:15px; font-weight:700; }
+  .lp-badge-card .rt { font-size:16.5px; font-weight:800; color:var(--ink); letter-spacing:-.3px; }
+  .lp-badge-card .rs { font-size:12px; color:var(--muted); line-height:1.5; width:100%; text-align:left; }
+  .history-sidebar { position:fixed; top:0; right:0; bottom:0; width:270px; z-index:80;
+    box-shadow:-10px 0 28px -14px rgba(20,20,50,.28); border-right:none; border-left:1px solid #e6e9f5; background:#fff; }
+  .hist-item { padding:10px 11px; border-radius:10px; cursor:pointer; margin:0 4px 4px; }
+  .hist-item:hover { background:#f5f6fb; }
+  .hist-item .hi-top { display:flex; justify-content:space-between; align-items:baseline; font-size:11.5px; color:#8a93a6; }
+  .hist-item .hi-stat { font-size:13px; font-weight:700; color:var(--ink); margin-top:3px; }
+  .hist-empty { padding:24px 14px; color:var(--muted); font-size:12.5px; text-align:center; }
   .lp label { display:block; font-size:12px; font-weight:500; color:var(--muted); margin:14px 0 6px; }
   .lp label .opt { color:#aab1bf; }
   .lp input { width:100%; }
@@ -179,6 +217,7 @@
     <div class="chrome">
       <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
       <div class="urlbar" id="p-url">com.timeinout.kr</div>
+      <button type="button" class="reload" id="p-history" title="이력">📜 이력</button>
       <button type="button" class="reload" id="p-reload" title="다시하기">↻ 다시하기</button>
     </div>
     <div class="loadbar"></div>
@@ -186,8 +225,12 @@
       <!-- 초기: 브라우저 안 로그인 화면 -->
       <div class="page-login" id="p-login">
         <div class="lp">
-          <div class="brand">🪽 webwing <span id="lp-brand">· 타임인아웃 근태 자동화</span></div>
-          <div class="sub" id="lp-sub">저장된 계정으로 브라우저가 대신 접속해 데이터를 수집·분석합니다.</div>
+          <div class="lp-wordmark">🪽 webwing</div>
+          <div class="lp-badge-card">
+            <div class="ic-row" id="lp-ic"></div>
+            <div class="rt" id="lp-title"></div>
+            <div class="rs" id="lp-subline"></div>
+          </div>
           <div id="lp-acct" class="acct-chip"></div>
           <input id="month" type="month" style="width:100%" />
           <button id="go">🛫 Fly</button>
@@ -226,6 +269,18 @@
         <div class="l" id="k-pace" style="margin-top:2px"></div>
       </div>
       <div class="kpi"><div class="l">휴일 근무 시간 (예외)</div><div class="v" id="k-hol">-</div><div class="l" id="k-hol-sub"></div></div>
+    </div>
+
+    <div class="card" id="leaveCard" style="display:none">
+      <h2>연차 현황 (내 것)</h2>
+      <div class="kpis" id="leave-kpis" style="margin-bottom:14px"></div>
+      <div class="bz-wrap">
+        <table class="bz-table" id="leave-hist-table">
+          <thead><tr><th>날짜</th><th>구분</th><th style="text-align:right">일수</th></tr></thead>
+          <tbody id="leave-hist-body"></tbody>
+        </table>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 개인 페이지 기준(본인 것만) · 언제 썼고 얼마나 남았는지.</p>
     </div>
 
     <div class="card" id="clockCard">
@@ -322,6 +377,53 @@
           <p style="color:var(--muted);font-size:12px;margin:12px 0 0">등록한 <b>사용처 키워드</b>에 걸린 대기건을 하나의 결의서로 묶어 상신 · 결재선 <b>법인카드 지출결의서</b> · 해외는 3일 경과분만.</p>
         </div>
       </div>
+      <div id="dash-company-leaves" style="display:none">
+        <div class="kpis" style="margin-bottom:16px">
+          <div class="kpi"><div class="l">올해 연차 사용 건수</div><div class="v" id="cl-count">-</div><div class="l" id="cl-sub"></div></div>
+          <div class="kpi"><div class="l">합계 일수</div><div class="v" id="cl-days">-</div><div class="l" id="cl-people"></div></div>
+        </div>
+        <div class="card">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>연차 현황</span>
+            <span style="display:flex;align-items:center;gap:10px">
+              <button id="cl-prev" class="p-nav" style="background:#eef0f6;color:var(--ink);width:30px;height:30px;border-radius:8px;font-size:15px;padding:0">‹</button>
+              <span id="cl-month-label" style="font-size:13.5px;font-weight:700;min-width:76px;text-align:center"></span>
+              <button id="cl-next" class="p-nav" style="background:#eef0f6;color:var(--ink);width:30px;height:30px;border-radius:8px;font-size:15px;padding:0">›</button>
+            </span>
+          </h2>
+          <div id="cl-cals"></div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">
+            <span style="color:#c2362b;font-weight:700">●</span> 공휴일 ·
+            <span style="color:#3b6fe0;font-weight:700">●</span> 연차 있는 날 ·
+            관리자 계정이 조회 가능한 범위(소속 부서 등)의 연차 내역 · 이름이 <b>?</b>로 뜨면 원본 표 컬럼이 예상과 달라 자동인식 실패 — 칩에 마우스 올려 원본 확인.</p>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>인원별 월별 연차 사용일수</span>
+            <span class="cl-half-toggle">
+              <button id="cl-half-1" data-half="1">상반기 (1~6월)</button>
+              <button id="cl-half-2" data-half="2">하반기 (7~12월)</button>
+            </span>
+          </h2>
+          <div class="bz-wrap">
+            <table class="bz-table" id="cl-monthly-table">
+              <thead><tr id="cl-monthly-head"></tr></thead>
+              <tbody id="cl-monthly-body"></tbody>
+            </table>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">한눈에 누가 어느 달 연차를 몰아 썼는지 체크용 · 반차·반반차도 일수로 환산해 합산.</p>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>인원별 올해 연차 사용 요약</h2>
+          <div class="bz-wrap">
+            <table class="bz-table" id="cl-summary-table">
+              <thead><tr id="cl-summary-head"></tr></thead>
+              <tbody id="cl-summary-body"></tbody>
+            </table>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃은 <b>연차 발생·잔여를 추적하지 않음</b> — 여기 나오는 숫자는 전부 <b>이번 해 사용량</b>입니다.</p>
+        </div>
+      </div>
       <div id="dash-correction" style="display:none">
         <div class="kpis" style="margin-bottom:16px">
           <div class="kpi"><div class="l">누락일</div><div class="v bad" id="cr-count">-</div><div class="l" id="cr-sub"></div></div>
@@ -353,6 +455,15 @@
   </div><!-- browser -->
   </main>
 </div><!-- shell -->
+
+<div id="history-scrim" style="display:none;position:fixed;inset:0;background:rgba(20,24,40,.18);z-index:79"></div>
+<aside class="sidebar history-sidebar" id="history-panel" style="display:none">
+  <div class="brand">
+    <h1 style="font-size:15px;flex:1">📜 실행 이력</h1>
+    <button type="button" id="history-close" style="background:none;border:0;color:#8a93a6;font-size:16px;cursor:pointer;padding:2px 6px">✕</button>
+  </div>
+  <div class="side-scroll" id="history-list"></div>
+</aside>
 
 <!-- 인페이지 확인 다이얼로그 -->
 <div class="ui-scrim" id="uiScrim">
@@ -414,6 +525,10 @@ const RECIPES = [
     brand: '· 결의 패턴 찾기', desc: '<b>미결의(대기)</b>에서 <b>반복되는 결의 패턴</b>(사용처)을 발굴해, 원하는 패턴을 <b>웹윙 자동화</b>로 등록합니다. (이 화면은 등록 전용 — 상신은 등록된 자동화에서)',
     endpoint: '/api/bizplay/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
     resultUrl: (d) => `webwing · 결의 패턴 찾기 · ${d.month}`, resultCap: '✓ 발굴된 결의 패턴' },
+  { id: 'company-leaves', icon: '/icons/timeinout.png', label: '연차 현황 (관리자용)', sub: '관리자 권한 필요 · 연간 연차 조회', services: ['timeinout'],
+    brand: '· 연차 현황 (관리자 전용)', desc: '<b>관리자 권한</b>이 있는 계정만 사용 가능 — 일반 직원 계정으로는 로그인이 거부돼요. 올해 연차 사용 내역을 달력·인원별 요약으로 한 번에 조회합니다.',
+    endpoint: '/api/leaves/company/stream', creds: 'timeinout', loginUrl: 'com.timeinout.kr',
+    resultUrl: (d) => `webwing · 연차 현황 · ${d.month}`, resultCap: '✓ 연차 현황' },
 ];
 const SVC = { timeinout: '/icons/timeinout.png', bizplay: '/icons/bizplay.png', flow: '/icons/flow.ico' };
 const SVC_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'flow.team' };
@@ -439,8 +554,13 @@ function selectRecipe(id) {
   activeRecipe = allRecipes().find(r => r.id === id) || RECIPES[0];
   renderRecipes();
   resetToLogin();
-  $('lp-brand').textContent = activeRecipe.brand;
-  $('lp-sub').innerHTML = activeRecipe.desc;
+  // 서비스 2개 이상 쓰는 자동화는 "앱 + 앱" — 각 아이콘 크기·패딩 그대로, 나란히
+  const svcs = activeRecipe.services || [];
+  $('lp-ic').innerHTML = svcs.length > 1
+    ? svcs.map((s, i) => `${i ? '<span class="plus">+</span>' : ''}<span class="app-ic"><img src="${esc(SVC[s])}" title="${esc(SVC_NAME[s])}" alt=""></span>`).join('')
+    : `<span class="app-ic"><img src="${esc(activeRecipe.icon)}" alt=""></span>`;
+  $('lp-title').textContent = activeRecipe.label;
+  $('lp-subline').innerHTML = activeRecipe.desc;
   updateAcctChip();
 }
 // 등록된 자동화(사용자 규칙) → 동적 레시피
@@ -560,7 +680,7 @@ async function load() {
   if (!ensureAccounts()) return;
   const month = $('month').value;
   $('status').textContent = '';
-  await streamRun(activeRecipe.endpoint, { mode: 'employee', month, patternId: activeRecipe.patternId },   // 자격증명은 서버 .env 사용
+  await streamRun(activeRecipe.endpoint, { mode: 'employee', month, patternId: activeRecipe.patternId, historyKey: activeRecipe.id },   // 자격증명은 서버 .env 사용
     { urlText: activeRecipe.loginUrl, capText: '자동화 진행 중 (단계별 실시간 표시)', loadingText: `${activeRecipe.brand} 접속 중…` });
 }
 
@@ -568,7 +688,7 @@ async function load() {
 async function runSubmit(patternId, yagunMode) {
   if (!ensureAccounts()) return;
   const month = $('month').value;
-  await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode },
+  await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode, historyKey: `bizplay-submit-${patternId}` },
     { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (대기건 묶어 결재 1건)' });
 }
 
@@ -626,7 +746,7 @@ function onResult(d) {
 }
 
 function render(d) {
-  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction']) $(id).style.display = 'none';
+  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction', 'dash-company-leaves']) $(id).style.display = 'none';
   if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
@@ -634,6 +754,7 @@ function render(d) {
   else if (d.recipe === 'pattern') { $('dash-pattern').style.display = 'block'; renderPattern(d); }
   else if (d.recipe === 'correction') { $('dash-correction').style.display = 'block'; renderCorrection(d); }
   else if (d.recipe === 'correction-submit') { $('dash-correction').style.display = 'block'; renderCorrectionSubmit(d); }
+  else if (d.recipe === 'company-leaves') { $('dash-company-leaves').style.display = 'block'; renderCompanyLeaves(d); }
   else { $('dash-timeinout').style.display = 'block'; renderTimeinout(d); }
 }
 function renderCorrectionSubmit(d) {
@@ -767,6 +888,104 @@ function renderYasik(d) {
   $('ys-confirm').style.display = 'none';
   $('ys-go').disabled = !s.eligible;
 }
+const CAL_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const shortLeaveType = (t) => t === '연차휴가' ? '연차' : t; // 타임인아웃 원본 라벨 "연차휴가"는 화면에서 "연차"로 줄여 표시
+// 휴가상세(반차/반반차)는 종일(1일(종일))이 아닐 때만 보여줌 — 전일은 "연차"만으로 충분
+const shortLeaveDetail = (detail) => (detail && !/^1일/.test(detail)) ? detail : '';
+function buildMonthCalendar(monthStr, items, holidays) {
+  const [y, m] = monthStr.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const byDate = {};
+  for (const x of items) (byDate[x.date] = byDate[x.date] || []).push(x);
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push('<div class="cal-cell other-month"></div>');
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`;
+    const dow = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+    const weekend = dow === 0 || dow === 6;
+    const hol = holidays[dateStr];
+    const list = byDate[dateStr] || [];
+    const shown = list.slice(0, 3);
+    const rest = list.length - shown.length;
+    cells.push(`<div class="cal-cell${weekend ? ' weekend' : ''}${hol ? ' holiday' : ''}">
+      <div class="cal-date">${day}${hol ? ` <span class="cal-hol-label" title="${esc(hol)}">${esc(hol)}</span>` : ''}</div>
+      ${shown.map(x => `<div class="cal-chip" title="${esc(`${x.name || '이름 미확인'} · ${x.type}${x.detail ? ' ' + x.detail : ''} · ${x.days}일${!x.name ? '\n원본: ' + (x.raw || []).join(' | ') : ''}`)}">${esc(x.name) || '?'} <span class="cal-chip-type">${esc(shortLeaveDetail(x.detail) || shortLeaveType(x.type))}</span></div>`).join('')}
+      ${rest > 0 ? `<div class="cal-more">+${rest}명</div>` : ''}
+    </div>`);
+  }
+  const totalCells = cells.length;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for (let i = 0; i < trailing; i++) cells.push('<div class="cal-cell other-month"></div>');
+
+  return `<div class="cal-grid">
+    ${CAL_DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+    ${cells.join('')}
+  </div>`;
+}
+let clData = null, clMonthIdx = 0;
+function renderCompanyLeavesMonth() {
+  const d = clData; if (!d) return;
+  const months = d.months || [d.month];
+  clMonthIdx = Math.max(0, Math.min(months.length - 1, clMonthIdx));
+  const mo = months[clMonthIdx];
+  const [yy, mm] = mo.split('-');
+  $('cl-month-label').textContent = `${yy}년 ${+mm}월`;
+  $('cl-prev').disabled = clMonthIdx === 0;
+  $('cl-next').disabled = clMonthIdx === months.length - 1;
+  $('cl-cals').innerHTML = buildMonthCalendar(mo, d.items.filter(x => x.date.startsWith(mo)), d.holidays || {});
+}
+let clHalf = 1;
+function renderCompanyLeavesMonthly(d) {
+  const allMonths = d.months || [];
+  const months = clHalf === 1 ? allMonths.slice(0, 6) : allMonths.slice(6, 12);
+  $('cl-half-1').classList.toggle('on', clHalf === 1);
+  $('cl-half-2').classList.toggle('on', clHalf === 2);
+  const byName = {}; // 이름 -> { 'YYYY-MM': 일수 }
+  for (const x of d.items) {
+    const mo = x.date.slice(0, 7);
+    byName[x.name] = byName[x.name] || {};
+    byName[x.name][mo] = +(((byName[x.name][mo] || 0) + x.days).toFixed(2));
+  }
+  // 사람 목록은 유형별 요약(전체 인원, 0건도 포함)에서 가져오고, 없으면 실제 사용기록의 이름으로 대체
+  const people = (d.byType && d.byType.items.length) ? d.byType.items : Object.keys(byName).map(n => ({ name: n, dept: '' }));
+  $('cl-monthly-head').innerHTML = `<th>이름</th>${months.map(mo => `<th style="text-align:right">${+mo.slice(5)}월</th>`).join('')}<th style="text-align:right">합계</th>`;
+  $('cl-monthly-body').innerHTML = people.map(p => {
+    const row = byName[p.name] || {};
+    const total = +(months.reduce((s, mo) => s + (row[mo] || 0), 0).toFixed(2));
+    return `<tr><td>${esc(p.name)}</td>
+      ${months.map(mo => `<td style="text-align:right${row[mo] ? '' : ';color:#c1c6d2'}">${row[mo] || '-'}</td>`).join('')}
+      <td style="text-align:right;font-weight:700">${total}</td></tr>`;
+  }).join('') || `<tr><td colspan="${months.length + 2}" style="text-align:center;color:var(--muted);padding:20px">데이터 없음</td></tr>`;
+}
+function renderCompanyLeavesSummary(d) {
+  const bt = d.byType || { types: [], items: [] };
+  // 전원 0(=전부 "-")인 휴가유형 컬럼은 숨김 — 다닥다닥 빈칸만 있는 표를 막음
+  const types = bt.types.filter(t => bt.items.some(x => x.byType[t]));
+  $('cl-summary-head').innerHTML = `<th>이름</th><th>부서</th>${types.map(t => `<th style="text-align:right">${esc(shortLeaveType(t))}</th>`).join('')}<th style="text-align:right">합계</th>`;
+  $('cl-summary-body').innerHTML = bt.items.map(x => `<tr>
+    <td>${esc(x.name)}</td><td style="color:#8a93a6;font-size:12px">${esc(x.dept)}</td>
+    ${types.map(t => `<td style="text-align:right${x.byType[t] ? '' : ';color:#c1c6d2'}">${x.byType[t] || '-'}</td>`).join('')}
+    <td style="text-align:right;font-weight:700">${x.total}</td></tr>`).join('')
+    || `<tr><td colspan="${types.length + 3}" style="text-align:center;color:var(--muted);padding:20px">데이터 없음</td></tr>`;
+}
+function renderCompanyLeaves(d) {
+  lastData = d;
+  clData = d;
+  const months = d.months || [d.month];
+  clMonthIdx = months.indexOf(d.month);
+  if (clMonthIdx < 0) clMonthIdx = months.length - 1;
+  clHalf = (+d.month.split('-')[1]) <= 6 ? 1 : 2;
+  const s = d.summary;
+  $('cl-count').textContent = s.count + '건';
+  $('cl-sub').textContent = `${d.sdate} ~ ${d.edate}`;
+  $('cl-days').textContent = s.totalDays + '일';
+  $('cl-people').textContent = `${s.people}명 합산`;
+  renderCompanyLeavesMonth();
+  renderCompanyLeavesMonthly(d);
+  renderCompanyLeavesSummary(d);
+}
 function renderPattern(d) {
   lastData = d;
   const s = d.summary;
@@ -780,10 +999,22 @@ function renderPattern(d) {
     || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">이 자동화에 걸린 대기건이 없어요 🎉</td></tr>';
   $('pt-go').disabled = !s.count;
 }
+function renderLeaveCard(d) {
+  const card = $('leaveCard');
+  if (!d.leaveBalance || !d.leaveBalance.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  $('leave-kpis').innerHTML = d.leaveBalance.map(b => `
+    <div class="kpi"><div class="l">${esc(b.type)}</div><div class="v">${b.remaining}<span style="font-size:14px;color:var(--muted);font-weight:600"> / ${b.total}일</span></div><div class="l">만료 ${esc(b.expire)}</div></div>`).join('');
+  const hist = d.leaveHistory || [];
+  $('leave-hist-body').innerHTML = hist.map(h => `<tr>
+    <td>${esc(h.date)}${h.dow ? `(${esc(h.dow)})` : ''}</td><td>${esc(h.detail)}</td><td style="text-align:right">${h.days}</td></tr>`).join('')
+    || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:16px">이 해에 쓴 연차가 없어요</td></tr>';
+}
 function renderTimeinout(d) {
   lastData = d;
   $('kpis').style.display = 'flex';
   $('clockCard').style.display = 'block';
+  renderLeaveCard(d);
 
   // 합계 규칙: 누락/의심일은 전부 제외(회색), 정정일은 토글 ON이면 제외(청록)
   // → 각 KPI가 그래프에 보이는 색 영역의 합과 정확히 일치
@@ -957,6 +1188,10 @@ function renderTimeinout(d) {
 $('go').addEventListener('click', load);
 $('month').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('go').disabled) load(); });
 $('excludeCorrected').addEventListener('change', () => { if (lastData) render(lastData); });
+$('cl-prev').addEventListener('click', () => { clMonthIdx--; renderCompanyLeavesMonth(); });
+$('cl-next').addEventListener('click', () => { clMonthIdx++; renderCompanyLeavesMonth(); });
+$('cl-half-1').addEventListener('click', () => { clHalf = 1; if (clData) renderCompanyLeavesMonthly(clData); });
+$('cl-half-2').addEventListener('click', () => { clHalf = 2; if (clData) renderCompanyLeavesMonthly(clData); });
 
 // ── 사이드 탭 (레시피 / 계정관리) ──
 function switchTab(tab) {
@@ -1034,6 +1269,60 @@ $('p-next').addEventListener('click', () => goToSlide(curIdx + 1));
 $('p-dots').addEventListener('click', (e) => { const idx = [...$('p-dots').querySelectorAll('i')].indexOf(e.target); if (idx >= 0) goToSlide(idx); });
 // 다시하기 → 로그인 화면으로 (아이디/비번/월 유지, 다시 조회 가능)
 $('p-reload').addEventListener('click', resetToLogin);
+
+// 실행 이력: 완료된 결과를 로컬에 저장해뒀다가 재조회 없이 다시 보기
+function fmtSavedAt(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// 자동화 종류별 "간단한 대표 데이터" 한 줄
+function historyStatLine(id, s) {
+  if (!s) return '';
+  if (id === 'timeinout') return `초과 ${s.otText || '-'}`;
+  if (id === 'correction') return `누락 ${s.count ?? 0}건 · 신청필요 ${s.pending ?? 0}건`;
+  if (id === 'correction-submit') return `상신 완료 ${s.okCount ?? 0} · 실패 ${s.failCount ?? 0}`;
+  if (id === 'yagun') return `${s.count ?? 0}건 · 상신대상 ${s.withProof ?? 0}건`;
+  if (id === 'yasik') return `${s.count ?? 0}건 · 인정 ${s.eligible ?? 0}건`;
+  if (id === 'company-leaves') return `${s.count ?? 0}건 · ${s.totalDays ?? 0}일`;
+  if (id.startsWith('bizplay-submit')) return `상신 완료 ${s.okCount ?? 0} · 실패 ${s.failCount ?? 0}`;
+  if (s.count != null) return `${s.count}건`;
+  return '';
+}
+function closeHistoryPanel() { $('history-panel').style.display = 'none'; $('history-scrim').style.display = 'none'; }
+async function openHistoryPanel() {
+  const list = $('history-list');
+  list.innerHTML = '<div class="hist-empty">불러오는 중…</div>';
+  $('history-panel').style.display = 'flex';
+  $('history-scrim').style.display = 'block';
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(activeRecipe.id)}`);
+    const { items } = await res.json();
+    list.innerHTML = items.length ? items.map(it => `
+      <div class="hist-item" data-id="${esc(it.id)}">
+        <div class="hi-top"><span>${esc(it.month || '')}</span><span>${esc(fmtSavedAt(it.savedAt))}</span></div>
+        <div class="hi-stat">${esc(historyStatLine(activeRecipe.id, it.summary))}</div>
+      </div>`).join('')
+      : '<div class="hist-empty">저장된 이력이 없어요<br>자동화를 실행하면 여기 쌓여요</div>';
+    list.querySelectorAll('.hist-item').forEach(el => {
+      el.addEventListener('click', async () => {
+        closeHistoryPanel();
+        const full = await (await fetch(`/api/history/${encodeURIComponent(activeRecipe.id)}/${el.dataset.id}`)).json();
+        $('dash').style.display = 'none';
+        $('player').style.display = 'flex';
+        $('player').classList.remove('fade');
+        $('p-login').style.display = 'none'; $('p-account').style.display = 'none';
+        slides = []; dashRendered = false;
+        curData = full.data; hasResult = true;
+        rebuildDots();
+        goToSlide(0);
+      });
+    });
+  } catch { list.innerHTML = '<div class="hist-empty" style="color:var(--red)">이력을 불러오지 못했어요</div>'; }
+}
+$('p-history').addEventListener('click', openHistoryPanel);
+$('history-close').addEventListener('click', closeHistoryPanel);
+$('history-scrim').addEventListener('click', closeHistoryPanel);
 
 // 번들(같은 용도 사용처 묶음) → 하나의 자동화로 등록
 async function registerBundle(b) {
@@ -1113,7 +1402,7 @@ $('cr-go').addEventListener('click', async () => {
       + rows.map(r => `· ${esc(r.date)}  출근 ${esc(r.in)} · 퇴근 ${esc(r.out)}`).join('<br>')
       + `<br><br>결재선: 이학준(전략사업본부) · 수신참조 김용덕</span>`,
   }))) return;
-  await streamRun('/api/correction/submit/stream', { rows },
+  await streamRun('/api/correction/submit/stream', { rows, historyKey: 'correction-submit' },
     { urlText: 'user.timeinout.kr', capText: '출퇴근 정정 신청 상신 중 (단계별 실시간 표시)', loadingText: '타임인아웃 정정 신청 중…' });
 });
 

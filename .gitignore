@@ -16,6 +16,7 @@ storageState.json
 # run artifacts (may contain personal data)
 snapshots/
 screenshots/
+.history/
 *.png
 *.jpg
 traces/

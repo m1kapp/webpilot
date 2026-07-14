@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 const __dirname = dirname(fileURLToPath(import.meta.url)); // pkg 스냅샷/일반 실행 양쪽 정적경로
-import { getOvertime, getOvertimeEmployee, closeBrowser } from './src/lib/timeinout.mjs';
+import { getOvertime, getOvertimeEmployee, getCompanyLeaves, closeBrowser } from './src/lib/timeinout.mjs';
 import { getCardPending, submitExpenses, getYagunTaxi, getYasik, getRulePending, readUserRules, writeUserRules } from './src/lib/bizplay.mjs';
 import { getCorrectionTargets, submitCorrections } from './src/lib/correction.mjs';
 import { dataDir, authPath, ensureAuthDir } from './src/lib/paths.mjs';
+import { saveHistory, listHistory, getHistoryEntry } from './src/lib/history.mjs';
 
 const app = express();
 const BASE_PORT = +(process.env.PORT || 18181);   // 파일럿 포트(팰린드롬). 막히면 자동 폴백.
@@ -49,7 +50,7 @@ app.get('/api/overtime', handle); // .env 기반(하위호환)
 
 // 스트리밍: 스냅샷을 캡처 즉시 흘려보냄 (NDJSON)
 app.post('/api/overtime/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', historyKey = 'timeinout' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -58,6 +59,8 @@ app.post('/api/overtime/stream', async (req, res) => {
   try {
     console.log(`▶ [stream] 본인 / ${month}`);
     const data = await getOvertimeEmployee({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('스트림 실패:', e.message);
@@ -68,7 +71,7 @@ app.post('/api/overtime/stream', async (req, res) => {
 
 // 비즈플레이 카드 미결의(대기) 스트리밍
 app.post('/api/bizplay/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', historyKey = 'bizplay' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -77,6 +80,8 @@ app.post('/api/bizplay/stream', async (req, res) => {
   try {
     console.log(`▶ [bizplay] 미결의 / ${month}`);
     const data = await getCardPending({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('bizplay 실패:', e.message);
@@ -87,7 +92,7 @@ app.post('/api/bizplay/stream', async (req, res) => {
 
 // 근태 정정: 타임인아웃 누락일 + Flow 활동시간 근거
 app.post('/api/correction/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', historyKey = 'correction' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -96,6 +101,8 @@ app.post('/api/correction/stream', async (req, res) => {
   try {
     console.log(`▶ [correction] 근태 정정 대상 / ${month}`);
     const data = await getCorrectionTargets({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('correction 실패:', e.message);
@@ -106,7 +113,7 @@ app.post('/api/correction/stream', async (req, res) => {
 
 // 근태 정정 '실제 상신': InOutModify 폼 제출 (출근/퇴근/사유 → 수정 요청)
 app.post('/api/correction/submit/stream', async (req, res) => {
-  const { rows = [], memo } = req.body || {};
+  const { rows = [], memo, historyKey = 'correction-submit' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -115,6 +122,8 @@ app.post('/api/correction/submit/stream', async (req, res) => {
   try {
     console.log(`▶ [correction:submit] ${rows.length}건`);
     const data = await submitCorrections({ rows, memo, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('correction 상신 실패:', e.message);
@@ -123,9 +132,30 @@ app.post('/api/correction/submit/stream', async (req, res) => {
   res.end();
 });
 
+// 연차 현황 (관리자 계정 필요): 관리자가 조회 가능한 범위(소속 부서 등)의 연차 사용 내역, 연간
+app.post('/api/leaves/company/stream', async (req, res) => {
+  const { month = '2026-06', id = '', pw = '', historyKey = 'company-leaves' } = req.body || {};
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => { res.write(JSON.stringify(obj) + '\n'); res.flush?.(); };
+  try {
+    console.log(`▶ [company-leaves] 연차 현황 / ${month}`);
+    const data = await getCompanyLeaves({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
+    send({ type: 'result', data });
+  } catch (e) {
+    console.error('company-leaves 실패:', e.message);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
+});
+
 // 야근택시 전용 조회 (심야택시 미결의 + 타임인아웃 야근 증빙 매칭)
 app.post('/api/yagun/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', historyKey = 'yagun' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -134,6 +164,8 @@ app.post('/api/yagun/stream', async (req, res) => {
   try {
     console.log(`▶ [yagun] 야근택시 조회 / ${month}`);
     const data = await getYagunTaxi({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('yagun 실패:', e.message);
@@ -144,7 +176,7 @@ app.post('/api/yagun/stream', async (req, res) => {
 
 // 야근식비 전용 조회 (혼자 먹은 1인 식대 + 타임인아웃 근태로 저녁/조식 인정 판정)
 app.post('/api/yasik/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '' } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', historyKey = 'yasik' } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -153,6 +185,8 @@ app.post('/api/yasik/stream', async (req, res) => {
   try {
     console.log(`▶ [yasik] 야근식비 조회 / ${month}`);
     const data = await getYasik({ month, id, pw, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('yasik 실패:', e.message);
@@ -163,7 +197,7 @@ app.post('/api/yasik/stream', async (req, res) => {
 
 // 등록된 목적지(사용자 규칙) 미리보기 스캔
 app.post('/api/pattern/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '', patternId } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', patternId, historyKey = `pattern-${patternId}` } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -172,12 +206,22 @@ app.post('/api/pattern/stream', async (req, res) => {
   try {
     console.log(`▶ [pattern] ${patternId} 조회 / ${month}`);
     const data = await getRulePending({ month, id, pw, patternId, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('pattern 실패:', e.message);
     send({ type: 'error', error: e.message });
   }
   res.end();
+});
+
+// ── 실행 이력: 자동화별 완료 결과를 로컬 JSON으로 저장(스냅샷 제외) → "이력" 버튼에서 재조회 없이 다시 보기 ──
+app.get('/api/history/:key', (req, res) => { res.json({ items: listHistory(req.params.key) }); });
+app.get('/api/history/:key/:id', (req, res) => {
+  const entry = getHistoryEntry(req.params.key, req.params.id);
+  if (!entry) return res.status(404).json({ error: '이력을 찾을 수 없습니다' });
+  res.json(entry);
 });
 
 // ── 사용자 규칙(패턴→목적지 등록) CRUD ──
@@ -201,7 +245,7 @@ app.delete('/api/rules/:id', (req, res) => {
 
 // 비즈플레이 규칙별 '실제 상신'(결의서 작성→용도→결재요청→결재선 확인) 스트리밍
 app.post('/api/bizplay/submit/stream', async (req, res) => {
-  const { month = '2026-06', id = '', pw = '', patternId, yagunMode } = req.body || {};
+  const { month = '2026-06', id = '', pw = '', patternId, yagunMode, historyKey = `bizplay-submit-${patternId}` } = req.body || {};
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -210,6 +254,8 @@ app.post('/api/bizplay/submit/stream', async (req, res) => {
   try {
     console.log(`▶ [bizplay:submit] ${patternId} / ${month}${yagunMode === 'pending' ? ' (정정 대기 미리결의)' : ''}`);
     const data = await submitExpenses({ month, id, pw, patternId, yagunMode, onSnapshot: (s) => send({ type: 'snap', snap: s }) });
+    saveHistory(historyKey, data);
+    console.log('✅ 완료 — 결과 전송');
     send({ type: 'result', data });
   } catch (e) {
     console.error('bizplay 상신 실패:', e.message);

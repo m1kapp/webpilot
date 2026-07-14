@@ -44,6 +44,12 @@ function monthRange(month) {
   const p = (n) => String(n).padStart(2, '0');
   return { y, m, last, sdate: `${y}-${p(m)}-01`, edate: `${y}-${p(m)}-${p(last)}` };
 }
+// month의 연도 전체 범위(달력 뷰용): sdate=1/1 ~ edate=12/31, months=그 해 12개월 라벨
+function yearRange(month) {
+  const y = month.split('-')[0];
+  const months = Array.from({ length: 12 }, (_, k) => `${y}-${String(k + 1).padStart(2, '0')}`);
+  return { months, sdate: `${y}-01-01`, edate: `${y}-12-31` };
+}
 
 async function isLoggedIn(context) {
   const page = await context.newPage();
@@ -186,6 +192,98 @@ async function fetchLeaves(context, { sdate, edate, name }, snapshots) {
       };
     }
     return map;
+  } catch { return null; } finally { await page.close(); }
+}
+
+// 관리자 검색 결과 페이지네이션 전체 수집(page size 50 고정). URL 쿼리로 직접 이동 — 폼 클릭보다 안정적
+// (버튼 클릭 방식은 "검색" 버튼이 여러 개라 엉뚱한 걸 누르는 경우가 있어 빈 결과로 새는 문제가 있었음)
+async function fetchAllPages(page, basePath, params, label) {
+  const qs = new URLSearchParams(params).toString();
+  const rows = [];
+  for (let p = 1; p <= 20; p++) { // 안전 상한 20페이지(=최대 1000행)
+    console.error(`[company-leaves] ${label} ${p}페이지 조회 중… (누적 ${rows.length}행)`);
+    await page.goto(`${HOST}${basePath}/${p}/50?${qs}`, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(500);
+    const { pageRows, total } = await page.evaluate(() => {
+      const t = document.querySelector('table');
+      const emptyMsg = t ? /존재하지\s*않습니다|목록이\s*존재/.test(t.innerText) : false;
+      const raw = t ? [...t.querySelectorAll('tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(td => td.innerText.trim())) : [];
+      const m = document.body.innerText.match(/총\s*(\d+)개\s*중/);
+      return { pageRows: emptyMsg ? [] : raw, total: m ? +m[1] : (emptyMsg ? 0 : raw.length) };
+    });
+    rows.push(...pageRows);
+    if (pageRows.length === 0 || rows.length >= total) break;
+  }
+  console.error(`[company-leaves] ${label} 완료 — 총 ${rows.length}행`);
+  return rows;
+}
+
+// 연차(휴가) 현황(관리자, /Leave/Daily): 이름 필터 없이 조회 → 관리자가 볼 수 있는 범위(부서 등) 전체의 일별 연차 내역
+async function fetchCompanyLeaves(context, { sdate, edate }, snapshots) {
+  const page = await context.newPage();
+  try {
+    const rows = await fetchAllPages(page, '/Leave/Daily', {
+      SDate: sdate, EDate: edate, IsWorking: 'W', CPGSEQ: '', POWSEQ: '', LTSEQ: '', LTDSEQ: '', Kind: '1', Keyword: '',
+    }, '일별 연차 내역');
+    await snap(page, '연차(휴가) 일별 현황 조회', snapshots);
+    // 실제 컬럼: 이름, 이메일, 부서, 근무지, 기본근로정책, 휴가일, 휴가유형, 휴가상세, 휴가일수, 휴가시간, 결재상세보기
+    const items = [];
+    for (const c of rows) {
+      if (c.length < 6) continue;
+      const i = c.findIndex(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); // 휴가일
+      if (i < 0) continue;
+      const date = c[i];
+      if (date < sdate || date > edate) continue;
+      items.push({
+        name: c[0] || '', dept: c[2] || '', date, dow: DOW[new Date(date + 'T00:00:00Z').getUTCDay()],
+        type: c[i + 1] || '휴가', detail: c[i + 2] || '',
+        days: parseFloat(String(c[i + 3]).replace(/[^0-9.]/g, '')) || 0,
+        hours: parseFloat(String(c[i + 4]).replace(/[^0-9.]/g, '')) || 0,
+        raw: c,
+      });
+    }
+    items.sort((a, b) => a.date === b.date ? a.name.localeCompare(b.name) : a.date.localeCompare(b.date));
+    return items;
+  } catch { return null; } finally { await page.close(); }
+}
+
+// 유형별 휴가 내역(관리자, /Leave/ByType): 직원별 휴가유형 사용일수 요약 + 합계
+// 주의: 타임인아웃에는 "발생/잔여" 개념 자체가 없음 — 이 페이지도 기간 내 "사용"량만 집계해서 보여줌
+async function fetchLeaveByType(context, { sdate, edate }, snapshots) {
+  const page = await context.newPage();
+  try {
+    // 이 페이지는 URL 쿼리스트링으로 SDate/EDate가 안 먹음(폼 검색 클릭으로만 반영됨) — /Leave/Daily와 다름
+    console.error('[company-leaves] 유형별 연차 사용 현황 조회 중…');
+    await page.goto(`${HOST}/Leave/ByType/1/50`, { waitUntil: 'networkidle', timeout: 20000 }); // size=50: 부서 인원 50명까지 페이지네이션 없이
+    await page.waitForTimeout(600);
+    await page.evaluate(({ s, e }) => {
+      const set = (sel, v) => { const el = document.querySelector(sel); if (el) { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); } };
+      set('#SDate', s); set('#EDate', e);
+    }, { s: sdate, e: edate });
+    await page.getByRole('button', { name: '검색' }).first().click().catch(() => {});
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(600);
+    const res = await page.evaluate(() => {
+      const t = document.querySelector('table');
+      const headers = t ? [...t.querySelectorAll('thead th, thead td')].map(x => x.innerText.trim()) : [];
+      const emptyMsg = t ? /존재하지\s*않습니다|목록이\s*존재/.test(t.innerText) : false;
+      const rows = emptyMsg ? [] : (t ? [...t.querySelectorAll('tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(td => td.innerText.trim())) : []);
+      const sdateVal = document.querySelector('#SDate')?.value || '';
+      const m = document.body.innerText.match(/총\s*(\d+)개\s*중/);
+      return { headers, rows, sdateVal, total: m ? +m[1] : rows.length };
+    });
+    if (res.sdateVal !== sdate) return null; // 날짜 필터가 반영 안 됐으면(레이스) 재시도
+    await snap(page, '유형별 연차 사용 현황 조회', snapshots);
+    // 컬럼: 이름, 부서, 근무지, 사원번호, [휴가유형...], 합계
+    const typeStart = 4, typeEnd = Math.max(typeStart, res.headers.length - 1);
+    const types = res.headers.slice(typeStart, typeEnd);
+    const items = res.rows.filter(c => c.length >= typeEnd).map(c => {
+      const byType = {};
+      types.forEach((t, k) => { const v = parseFloat(String(c[typeStart + k]).replace(/[^0-9.]/g, '')); if (v) byType[t] = v; });
+      return { name: c[0] || '', dept: c[1] || '', workplace: c[2] || '', empNo: c[3] || '', byType, total: parseFloat(String(c[c.length - 1]).replace(/[^0-9.]/g, '')) || 0 };
+    });
+    if (res.total > items.length) console.error(`[company-leaves] ByType ${res.total}명 중 ${items.length}명만 수집(50명 초과분 페이지네이션 미지원)`);
+    return { types, items };
   } catch { return null; } finally { await page.close(); }
 }
 
@@ -419,7 +517,7 @@ async function fetchEmployeeCards(context, month, snapshots) {
   return cards;
 }
 
-// 나의 휴가(연차) 내역 리스트 스크래핑
+// 나의 휴가(연차) 내역 리스트 스크래핑 — 해당 월 일자별 map(byDay, 근태차트용) + 전체일수/잔여일수/만료일(balance) + 연간 사용이력(history)
 async function fetchEmployeeLeaves(context, month, snapshots) {
   const ty = Number(month.split('-')[0]);
   const page = await context.newPage();
@@ -434,17 +532,31 @@ async function fetchEmployeeLeaves(context, month, snapshots) {
     }
     await snap(page, '나의 휴가(연차) 내역', snapshots);
     const text = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
-    const map = {};
+
+    // 전체일수/잔여일수/만료일 (휴가유형별 — 연차휴가, 기타휴가 등)
+    const balance = [];
+    const balRe = /([가-힣]{2,8})\s*전체일수\s*([\d.]+)일\s*잔여일수\s*([\d.]+)일\s*만료일\s*(\d{4}-\d{2}-\d{2})/g;
+    let bm;
+    while ((bm = balRe.exec(text))) {
+      const [, type, total, remaining, expire] = bm;
+      balance.push({ type, total: parseFloat(total) || 0, remaining: parseFloat(remaining) || 0, expire });
+    }
+
+    // 연간 사용이력(이 해에 실제 쓴 날짜들) + 해당 월만 뽑은 byDay(근태차트용, 기존 동작 유지)
+    const byDay = {};
+    const history = [];
     const re = /(\d{4}-\d{2}-\d{2})\s*\([^)]*\)\s*휴가명\s*(.+?)\s*휴가일수\s*([\d.]+)\s*일/g;
     let mm;
     while ((mm = re.exec(text))) {
       const [, date, rawName, daysStr] = mm;
-      if (!date.startsWith(month)) continue;
       const days = parseFloat(daysStr) || 0;
-      map[Number(date.slice(8, 10))] = { type: '연차휴가', detail: rawName.trim(), days, hours: Math.round(days * 8) };
+      history.push({ date, dow: DOW[new Date(date + 'T00:00:00Z').getUTCDay()], detail: rawName.trim(), days });
+      if (!date.startsWith(month)) continue;
+      byDay[Number(date.slice(8, 10))] = { type: '연차휴가', detail: rawName.trim(), days, hours: Math.round(days * 8) };
     }
-    return map;
-  } catch { return {}; } finally { await page.close(); }
+    history.sort((a, b) => b.date.localeCompare(a.date)); // 최신순
+    return { byDay, balance, history };
+  } catch { return { byDay: {}, balance: [], history: [] }; } finally { await page.close(); }
 }
 
 function analyzeEmployee(cards, month, corrections = {}, leaves = {}, trips = {}) {
@@ -511,20 +623,57 @@ export async function getOvertimeEmployee({ month, id, pw, onSnapshot }) {
   const browser = await getBrowser();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
   try {
+    console.error('[timeinout] 로그인 중…');
     await loginUser(ctx, creds, snapshots);
+    console.error('[timeinout] 나의 근태 카드 조회 중…');
     const cards = await fetchEmployeeCards(ctx, month, snapshots);
-    const leaves = await fetchEmployeeLeaves(ctx, month, snapshots);
+    console.error('[timeinout] 휴가 내역 조회 중…');
+    const { byDay: leaves, balance: leaveBalance, history: leaveHistory } = await fetchEmployeeLeaves(ctx, month, snapshots);
+    console.error('[timeinout] 출장·외근 내역 조회 중…');
     const trips = await fetchEmployeeTrips(ctx, month, snapshots).catch(() => ({}));
     // 정정 트래킹: 결재함 상신함의 '출퇴근시간수정'(대기·승인)을 근로일 기준으로 매핑
+    console.error('[timeinout] 정정 신청 내역 조회 중…');
     const sub = await getSubmittedCorrections((m) => console.error('[timeinout]', m), month).catch(() => ({ byDate: {} }));
     const corrections = {};
     for (const [date, v] of Object.entries(sub.byDate || {})) {
       if (!date.startsWith(month)) continue;
       corrections[Number(date.slice(8, 10))] = { reason: `출퇴근수정 ${v.status}`, status: v.status, reqIn: v.reqIn, reqOut: v.reqOut };
     }
-    return { name: '본인', mode: 'employee', corrections, leaves, trips, snapshots, ...analyzeEmployee(cards, month, corrections, leaves, trips) };
+    console.error('[timeinout] 완료 — 결과 전송');
+    return { name: '본인', mode: 'employee', corrections, leaves, leaveBalance, leaveHistory, trips, snapshots, ...analyzeEmployee(cards, month, corrections, leaves, trips) };
   } finally {
     await ctx.close().catch(() => {}); // 컨텍스트만 닫고 브라우저는 재사용
+  }
+}
+
+// 전사 연차 현황(관리자 전용): 해당 월 전체 직원의 연차 사용 내역
+export async function getCompanyLeaves({ month, id, pw, onSnapshot }) {
+  const creds = { id: id || process.env.TIMEINOUT_ID, pw: pw || process.env.TIMEINOUT_PW };
+  const freshLogin = !!(id && pw);
+  const { months, sdate, edate } = yearRange(month); // 달력 뷰: 대상월이 속한 연도 전체(1~12월) 한 번에, 화면에서 월 넘기기
+  const snapshots = [];
+  if (onSnapshot) snapshots.onSnap = onSnapshot;
+  const browser = await getBrowser();
+  const ctx = await browser.newContext({
+    storageState: (!freshLogin && existsSync(AUTH)) ? AUTH : undefined,
+    viewport: { width: 1400, height: 900 },
+  });
+  try {
+    if (freshLogin || !existsSync(AUTH) || !(await isLoggedIn(ctx))) {
+      try { await login(ctx, creds, snapshots); }
+      catch { throw new Error('로그인 실패 — 이 기능은 타임인아웃 관리자 권한이 있는 계정만 쓸 수 있어요. 아이디/비번이 맞아도 관리자 권한이 없으면 실패합니다.'); }
+    }
+    const retry = async (fn, empty) => (await fn()) ?? (await fn()) ?? empty;
+    const items = await retry(() => fetchCompanyLeaves(ctx, { sdate, edate }, snapshots), []);
+    const byType = await retry(() => fetchLeaveByType(ctx, { sdate, edate }, snapshots), { types: [], items: [] });
+    const totalDays = +items.reduce((s, x) => s + x.days, 0).toFixed(1);
+    const holidays = Object.fromEntries(Object.entries(KR_HOLIDAYS).filter(([d]) => d >= sdate && d <= edate));
+    return {
+      recipe: 'company-leaves', month, months, sdate, edate, items, holidays, byType, snapshots,
+      summary: { count: items.length, totalDays, people: byType.items.length },
+    };
+  } finally {
+    await ctx.close().catch(() => {});
   }
 }
 
