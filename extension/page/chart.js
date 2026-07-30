@@ -122,21 +122,31 @@ export function drawClockChart(canvas, days, opts = {}) {
   // 날짜 라벨 — 주말은 빨강으로
   const stride = labelStride(slot);
   ctx.textAlign = 'center';
+  ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+  // 1일·stride 배수·말일을 후보로 두되, 앞에 그린 라벨과 폭이 겹치면 건너뛴다.
+  // (말일을 무조건 그리면 30·31이 붙어 "3031"로 뭉갠다)
+  const last = segs.length;
+  const drawnLabels = [];
+  let lastRight = -Infinity;
   segs.forEach((g, i) => {
     const d = g.day.day;
-    const keep = stride === 1 || d === 1 || d === segs.length || d % stride === 0;
-    if (!keep) return;
+    if (!(stride === 1 || d === 1 || d === last || d % stride === 0)) return;
     const cx = plotX + i * slot + slot / 2;
+    const halfW = ctx.measureText(String(d)).width / 2;
+    if (cx - halfW < lastRight + 3) return;
+    lastRight = cx + halfW;
+    drawnLabels.push({ day: d, left: cx - halfW, right: cx + halfW });
     ctx.fillStyle = g.day.holiday ? '#c98a8a' : TICK_TX;
     ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillText(String(d), cx, plotY + plotH + 9);
     if (wide) {
       ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
       ctx.fillText(g.day.dow, cx, plotY + plotH + 20);
+      ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
     }
   });
 
-  return { segs, plotX, slot, plotW };
+  return { segs, plotX, slot, plotW, labels: drawnLabels };
 }
 
 // 캔버스 위 좌표 → 몇 번째 날인지
@@ -149,7 +159,10 @@ function hitIndex(geom, offsetX) {
 // 그리기 + 툴팁 + 리사이즈(사이드 패널 ↔ 새 탭)까지 한 묶음으로 붙인다.
 export function mountClockChart(canvas, tip, days, opts = {}) {
   let geom = null;
-  const redraw = () => { geom = drawClockChart(canvas, days, opts); };
+  const redraw = () => {
+    geom = drawClockChart(canvas, days, opts);
+    canvas.__geom = geom;   // 테스트에서 라벨 배치를 들여다보는 통로
+  };
   redraw();
 
   const show = (ev) => {

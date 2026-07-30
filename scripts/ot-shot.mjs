@@ -11,12 +11,12 @@ import { fileURLToPath } from 'node:url';
 const EXT = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const wd = mkdtempSync(join(tmpdir(), 'o-')), PORT = 18456;
 
-// 2026-06 한 달. 야근 많은 달 + 주말근무 + 누락 + 익일퇴근 섞음.
+// 2026-07 한 달(31일). 라벨이 가장 빽빽한 경우라 겹침 검사에 좋다.
 const pad = (n) => String(n).padStart(2, '0');
 const DOW = ['월','화','수','목','금','토','일'];
 const CARDS = [];
-for (let d = 1; d <= 30; d++) {
-  const dow = DOW[(d + 6) % 7];            // 2026-06-01 = 월
+for (let d = 1; d <= 31; d++) {
+  const dow = DOW[(d + 1) % 7];            // 2026-07-01 = 수
   const weekend = dow === '토' || dow === '일';
   if (d === 4 || d === 17) continue;        // 기록 누락 이틀
   if (weekend && d % 3 !== 0) continue;     // 주말은 가끔만 출근
@@ -24,9 +24,9 @@ for (let d = 1; d <= 30; d++) {
   const outH = weekend ? inH + 6 : 18 + (d % 7) * 1.4;   // 어떤 날은 24시 넘김
   const t = (h) => `${pad(Math.floor(h) % 24)}:${pad(Math.round((h % 1) * 60))}:00`;
   const recog = Math.max(0, outH - inH - 1.5);
-  CARDS.push([`06.${pad(d)}`, dow, t(inH), t(outH), `${Math.floor(recog)}시간 ${pad(Math.round((recog % 1) * 60))}분`]);
+  CARDS.push([`07.${pad(d)}`, dow, t(inH), t(outH), `${Math.floor(recog)}시간 ${pad(Math.round((recog % 1) * 60))}분`]);
 }
-const hist = `<!doctype html><body><div>2026년 6월</div>${CARDS.map(([md, dw, i, o, r], k) =>
+const hist = `<!doctype html><body><div>2026년 7월</div>${CARDS.map(([md, dw, i, o, r], k) =>
   `<div><a href="/InOutMng/InOutDetail/${k}">${md} (${dw}) IN ${i} OUT ${o} 인정 시간 ${r} 출근 상태 정상 퇴근 상태 정상 비업무 -</a></div>`).join('')}</body>`;
 
 execFileSync('openssl', ['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=user.timeinout.kr','-keyout',join(wd,'k'),'-out',join(wd,'c')], { stdio: 'ignore' });
@@ -56,7 +56,7 @@ pg.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 await pg.setViewportSize({ width: 400, height: 1400 });
 await pg.goto(`chrome-extension://${id}/page/index.html`);
 await pg.waitForSelector('.auto');
-await pg.$eval('#month', (e) => { e.value = '2026-06'; });
+await pg.$eval('#month', (e) => { e.value = '2026-07'; });
 await pg.click('.auto[data-id="overtime"]');
 await pg.waitForSelector('#view-result:not([hidden]) #clock', { timeout: 30000 });
 await pg.waitForTimeout(700);
@@ -76,10 +76,27 @@ await pg.hover('#clock');
 await pg.waitForTimeout(200);
 const tipShown = await pg.$eval('#clock-tip', (e) => !e.hidden && e.textContent.trim());
 
+// 날짜 라벨 겹침 — 폭에 따라 stride가 달라지므로 사이드 패널부터 넓은 탭까지 훑는다.
+// 예전에는 말일을 무조건 그려서 폭이 특정 구간일 때 30·31이 "3031"로 뭉갰다.
+const overlaps = [];
+for (let w = 360; w <= 1100; w += 20) {
+  await pg.setViewportSize({ width: w, height: 1000 });
+  await pg.waitForTimeout(120);
+  const bad = await pg.$eval('#clock', (c) => {
+    const L = (c.__geom && c.__geom.labels) || [];
+    const hit = [];
+    for (let i = 1; i < L.length; i++) if (L[i].left < L[i - 1].right) hit.push(`${L[i - 1].day}·${L[i].day}`);
+    return { hit, days: L.map((x) => x.day) };
+  });
+  if (bad.hit.length) overlaps.push({ 폭: w, 겹침: bad.hit, 라벨: bad.days.join(',') });
+}
+
 await pg.setViewportSize({ width: 1100, height: 1000 });
 await pg.waitForTimeout(600);
 await pg.screenshot({ path: '/tmp/ot-wide.png', fullPage: true });
 const wideCanvas = await pg.$eval('#clock', (c) => ({ w: c.width, h: c.height }));
 
-console.log(JSON.stringify({ 캔버스_좁음: painted, 캔버스_넓음: wideCanvas, 범례: legend, 툴팁: tipShown, 가로스크롤: scrollX, 오류: errs }, null, 2));
+console.log(JSON.stringify({ 캔버스_좁음: painted, 캔버스_넓음: wideCanvas, 범례: legend, 툴팁: tipShown,
+  가로스크롤: scrollX, 라벨겹침: overlaps.length ? overlaps : '없음(360~1100px)', 오류: errs }, null, 2));
+if (overlaps.length || errs.length) process.exitCode = 1;
 await ctx.close(); srv.close();
