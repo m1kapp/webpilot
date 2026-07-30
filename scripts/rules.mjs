@@ -76,13 +76,16 @@ check('자정 넘긴 퇴근 평균 = 익일 00:00', midnight.summary.avgOutText 
 const kst = new Date(Date.now() + 9 * 3600 * 1000);
 const today = kst.getUTCDate();
 const thisMonth = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
-const ongoing = buildDays({ [today]: { inH: 8, outH: null, recogMin: 0, policy: '', inStat: '출근', outStat: '', nonWork: '' } }, thisMonth);
+// 출근 시각을 '지금'에서 거꾸로 잡는다. 08시로 고정하면 새벽에 돌릴 때
+// 근로가 0분이라 누락일로 빠져 테스트가 시각에 따라 흔들린다.
+const nowH = kst.getUTCHours() + kst.getUTCMinutes() / 60;
+const ongoing = buildDays({ [today]: { inH: Math.max(0, nowH - 6), outH: null, recogMin: 0, policy: '', inStat: '출근', outStat: '', nonWork: '' } }, thisMonth);
 const od = ongoing.days.find((x) => x.day === today);
-if (od && od.projected) {
+if (od && od.projected && !od.missing) {
   check('진행중인 날은 퇴근 평균에서 제외', ongoing.summary.avgOutDays === 0, `${ongoing.summary.avgOutDays}일`);
   check('진행중인 날도 출근 평균에는 포함', ongoing.summary.avgInDays === 1, `${ongoing.summary.avgInDays}일`);
 } else {
-  console.log('  (오늘이 휴일이라 진행중 검사는 건너뜀)');
+  console.log(`  (오늘이 휴일이거나 아직 근로가 안 쌓여 진행중 검사는 건너뜀 — projected=${od?.projected} missing=${od?.missing})`);
 }
 
 console.log('\n── 7. 지난 달은 달 전체로 나눈다 ──');

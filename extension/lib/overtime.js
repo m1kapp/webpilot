@@ -59,42 +59,71 @@ async function navigateToMonth(tabId, ty, tm) {
     if (lm && +lm[1] === ty && +lm[2] === tm) return;
   }
 
-  for (let i = 0; i < 24; i++) {
+  // 방법을 하나씩 갈아 끼운다. 한 번 눌러 보고 라벨이 안 바뀌면 그 방법은 이 사이트에서
+  // 안 먹는 것이니 다음 방법으로 넘어간다. 0번이 가장 유력하다 —
+  // '내 연차'의 연도 이동('이전 해'/'다음 해' 정확 일치)이 실제 사이트에서 먹히는 방식이라
+  // 월 이동도 같은 규칙일 가능성이 높다.
+  const STRATEGIES = 6;
+  let strategy = 0;
+  for (let attempt = 0; attempt < 40 && strategy < STRATEGIES; attempt++) {
     const label = await readMonthLabel(tabId);
     const lm = label.match(/(\d{4})년\s*(\d{1,2})월/);
     if (lm && +lm[1] === ty && +lm[2] === tm) return;
     const cur = lm ? +lm[1] * 12 + +lm[2] : ty * 12 + tm;
-    const goPrev = cur > ty * 12 + tm;
 
-    await evaluate(tabId, (prev) => {
-      const all = [...document.querySelectorAll('*')];
-      const labelEl = all.find((el) => el.children.length === 0 && /\d{4}년\s*\d{1,2}월/.test(el.textContent || ''));
-      if (!labelEl) return;
-      // el.click()만으로는 안 먹는 화살표가 있어(포인터 이벤트로 동작) 전체 시퀀스를 흘려보낸다.
-      const fire = (el) => {
-        if (!el || el === labelEl) return false;
-        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-        }
-        return true;
-      };
-      // 1순위: 데스크톱과 같은 발상 — 라벨 좌우 좌표에 실제로 있는 요소를 누른다.
-      const r = labelEl.getBoundingClientRect();
-      const y = r.top + r.height / 2;
-      for (const dx of [20, 28, 40]) {
-        const el = document.elementFromPoint(prev ? r.left - dx : r.right + dx, y);
-        if (fire(el)) return;
-      }
-      // 2순위: 라벨 주변에서 화살표처럼 생긴 요소를 찾는다(문서 순서상 앞=이전, 뒤=다음).
-      const row = labelEl.closest('div, header, nav, section') || labelEl.parentElement;
-      const clickable = [...row.querySelectorAll('a,button,i,span,[onclick],[class*=prev],[class*=next],[class*=arrow]')]
-        .filter((el) => el.offsetParent !== null && !el.contains(labelEl));
-      if (clickable.length >= 2) fire(prev ? clickable[0] : clickable[clickable.length - 1]);
-    }, goPrev);
-
+    await evaluate(tabId, moveMonthStep, { prev: cur > ty * 12 + tm, strategy });
     await sleep(1100);
-    // 라벨이 그대로면 어떤 방법도 안 먹은 것. 더 돌아도 같으니 멈추고 호출부 검증에 맡긴다.
-    if (await readMonthLabel(tabId) === label) return;
+    if (await readMonthLabel(tabId) === label) strategy++;   // 안 움직였다 → 다음 방법
+  }
+}
+
+// 페이지 안에서 실행되는 "월 한 칸 이동" 시도. strategy로 방법을 바꾼다.
+// ⚠ 직렬화돼 건너가므로 바깥 변수를 못 데려간다 — 모든 걸 안에서 정의한다.
+function moveMonthStep({ prev, strategy }) {
+  const all = [...document.querySelectorAll('*')];
+  const labelEl = all.find((el) => el.children.length === 0 && /\d{4}년\s*\d{1,2}월/.test(el.textContent || ''));
+  if (!labelEl) return;
+  const visible = (el) => el && el.offsetParent !== null && !el.contains(labelEl) && el !== labelEl;
+  const txt = (el) => (el.textContent || '').trim();
+  const click = (el) => { if (!visible(el)) return false; el.click(); return true; };
+  // 일부 화살표는 click()에 반응하지 않고 포인터 이벤트로만 동작한다.
+  const firePointer = (el) => {
+    if (!visible(el)) return false;
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    }
+    return true;
+  };
+  const rect = labelEl.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+  const atOffsets = (offs) => offs.map((dx) => document.elementFromPoint(prev ? rect.left - dx : rect.right + dx, midY));
+
+  switch (strategy) {
+    case 0: {   // '이전 달'/'다음 달' 정확 일치 — 연도 이동이 쓰는 검증된 방식
+      const want = prev ? ['이전 달', '이전달', '지난 달', '지난달'] : ['다음 달', '다음달'];
+      return void click(all.find((el) => want.includes(txt(el))));
+    }
+    case 1: {   // aria-label·title에 이전/다음이 적힌 버튼
+      const re = prev ? /이전|지난|prev/i : /다음|next/i;
+      return void click(all.find((el) => visible(el)
+        && re.test(`${el.getAttribute?.('aria-label') || ''} ${el.getAttribute?.('title') || ''}`)));
+    }
+    case 2: {   // 화살표 글자만 든 요소
+      const want = prev ? ['◀', '‹', '<', '←', '❮'] : ['▶', '›', '>', '→', '❯'];
+      return void click(all.find((el) => el.children.length === 0 && want.includes(txt(el))));
+    }
+    case 3:     // 라벨 좌우 좌표 — 데스크톱이 실제 마우스로 하던 자리
+      for (const el of atOffsets([20, 28, 40])) if (click(el)) return;
+      return;
+    case 4:     // 같은 자리에 포인터 이벤트 전체 시퀀스
+      for (const el of atOffsets([20, 28, 40])) if (firePointer(el)) return;
+      return;
+    default: {  // 라벨을 감싼 줄 안에서 화살표처럼 생긴 것(문서 순서상 앞=이전, 뒤=다음)
+      const row = labelEl.closest('div, header, nav, section') || labelEl.parentElement;
+      const cand = [...(row ? row.querySelectorAll('a,button,i,span,img,svg,[onclick],[class*=prev],[class*=next],[class*=arrow]') : [])]
+        .filter(visible);
+      if (cand.length >= 2) firePointer(prev ? cand[0] : cand[cand.length - 1]);
+    }
   }
 }
 
@@ -130,7 +159,11 @@ async function describeMonthNav(tabId) {
     const row = labelEl.closest('div, header, nav, section') || labelEl.parentElement;
     const sibs = [...(row ? row.querySelectorAll('a,button,i,span,img,svg,[onclick]') : [])]
       .filter((el) => el.offsetParent !== null && !el.contains(labelEl)).slice(0, 12).map(brief);
-    return { found: true, url: location.href, label: brief(labelEl), parent: row ? brief(row) : '', around, sibs };
+    // 연도 이동('이전 해')처럼 글자로 된 조작부가 있는지 — 가장 먼저 확인할 단서
+    const worded = all.filter((el) => el.children.length === 0
+      && /^(이전|다음|지난)\s*(달|월|해|년)?$|^[◀▶‹›<>←→❮❯]$/.test((el.textContent || '').trim()))
+      .slice(0, 8).map(brief);
+    return { found: true, url: location.href, label: brief(labelEl), parent: row ? brief(row) : '', around, sibs, worded };
   }).catch(() => ({ found: false }));
 }
 
@@ -150,6 +183,7 @@ async function monthMismatchError(tabId, month, ty, tm, label, monthOf) {
   ];
   if (nav.found) {
     lines.push(`월 라벨: ${nav.label}`, `묶은 요소: ${nav.parent}`);
+    if (nav.worded?.length) lines.push('글자로 된 이동 버튼:', ...nav.worded.map((x) => `  ${x}`));
     if (nav.around?.length) lines.push('라벨 좌우 좌표에 있는 것:', ...nav.around.map((x) => `  ${x}`));
     if (nav.sibs?.length) lines.push('주변 클릭 후보:', ...nav.sibs.map((x) => `  ${x}`));
   } else {

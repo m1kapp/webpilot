@@ -22,12 +22,18 @@ const MONTHS = {
 const cardsHTML = (mo) => MONTHS[mo].map(([md, dw, i, o], k) =>
   `<div><a href="/InOutMng/InOutDetail/${k}">${md} (${dw}) IN ${i} OUT ${o} 인정 시간 9시간 00분 출근 상태 정상 퇴근 상태 정상 비업무 -</a></div>`).join('');
 
-// frozen=true면 화살표를 눌러도 아무 일도 안 일어난다(실제로 겪은 상황).
-const page = (frozen) => `<!doctype html><body style="font-family:sans-serif">
+// 조작부는 '이전 달'/'다음 달' 글자 버튼 — 연도 이동('이전 해')이 실제 사이트에서
+// 그렇게 생겼으니 월도 같은 규칙일 것으로 보고 이 모양으로 검증한다.
+// frozen=true면 눌러도 아무 일도 안 일어난다(실제로 겪은 상황).
+const NAV = {
+  worded: '<a href="#" id="prev">이전 달</a>|<a href="#" id="next">다음 달</a>',
+  icon: '<span id="prev" style="cursor:pointer">\u25c0</span>|<span id="next" style="cursor:pointer">\u25b6</span>',
+};
+const page = (frozen, shape) => `<!doctype html><body style="font-family:sans-serif">
 <div style="display:flex;gap:12px;align-items:center">
-  <span id="prev" style="cursor:pointer">◀</span>
+  ${NAV[shape].split('|')[0]}
   <span id="lbl">2026년 7월</span>
-  <span id="next" style="cursor:pointer">▶</span>
+  ${NAV[shape].split('|')[1]}
 </div>
 <div id="cards">${cardsHTML(7)}</div>
 <script>
@@ -45,12 +51,12 @@ const page = (frozen) => `<!doctype html><body style="font-family:sans-serif">
   document.getElementById('next').addEventListener('click', function () { go(1); });
 <\/script></body>`;
 
-let frozen = false;
+let frozen = false, shape = 'worded';
 execFileSync('openssl', ['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=user.timeinout.kr','-keyout',join(wd,'k'),'-out',join(wd,'c')], { stdio: 'ignore' });
 const srv = createServer({ key: readFileSync(join(wd,'k')), cert: readFileSync(join(wd,'c')) }, (rq, rs) => {
   rs.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   const p = rq.url.split('?')[0];
-  if (p === '/InOutMng/InOutHistory') return rs.end(page(frozen));
+  if (p === '/InOutMng/InOutHistory') return rs.end(page(frozen, shape));
   if (p === '/InOutMng/List') return rs.end('<body><ul></ul></body>');
   if (p === '/ApprovalMng/Index') return rs.end('<body></body>');
   if (p.startsWith('/Leave')) return rs.end('<body><ul class="card_list"></ul></body>');
@@ -73,17 +79,21 @@ const ask = (month) => pg.evaluate((mo) => new Promise((resolve) => {
 const fails = [];
 const check = (name, ok, got) => { console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : ` — ${got}`}`); if (!ok) fails.push(name); };
 
-// ── 화살표가 정상인 화면 ──
-console.log('\n── 월 이동 가능한 화면 ──');
-const jul = await ask('2026-07');
-check('7월(기본 화면) 조회', jul?.ok && jul.data.summary.wdOtText === '5시간 00분',
-  jul?.ok ? jul.data.summary.wdOtText : jul?.error);
-
-const jun = await ask('2026-06');
-check('6월로 이동해 6월 데이터 반환', jun?.ok && jun.data.summary.wdOtText === '1시간 00분',
-  jun?.ok ? `평일초과 ${jun.data.summary.wdOtText}` : jun?.error);
-check('6월 펀치가 09:00~19:00', jun?.ok && jun.data.days[0]?.inText === '09:00',
-  jun?.ok ? jun.data.days[0]?.inText : jun?.error);
+// ── 이동이 되는 화면: 조작부 모양을 바꿔가며 ──
+// 실제 사이트가 글자 버튼인지 아이콘인지 모르니 둘 다 통과해야 한다.
+for (const [name, s] of [['글자 버튼(이전 달)', 'worded'], ['아이콘 화살표(◀▶)', 'icon']]) {
+  shape = s;
+  console.log(`\n── 월 이동 가능한 화면 · ${name} ──`);
+  const jul = await ask('2026-07');
+  check(`[${name}] 7월(기본 화면) 조회`, jul?.ok && jul.data.summary.wdOtText === '5시간 00분',
+    jul?.ok ? jul.data.summary.wdOtText : jul?.error);
+  const jun = await ask('2026-06');
+  check(`[${name}] 6월로 이동해 6월 데이터 반환`, jun?.ok && jun.data.summary.wdOtText === '1시간 00분',
+    jun?.ok ? `평일초과 ${jun.data.summary.wdOtText}` : jun?.error);
+  check(`[${name}] 6월 펀치가 09:00~19:00`, jun?.ok && jun.data.days[0]?.inText === '09:00',
+    jun?.ok ? jun.data.days[0]?.inText : jun?.error);
+}
+shape = 'worded';
 
 // ── 화살표가 죽은 화면 ──
 console.log('\n── 월 이동이 막힌 화면 ──');
