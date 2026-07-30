@@ -1,5 +1,7 @@
 // Webwing 사이드 패널 — 홈(자동화 목록) → 실행 중(단계 로그) → 결과.
 // 실행 중에는 목록 위를 스크림이 덮고 백그라운드 수집이 도는 동안 단계가 올라간다.
+import { mountClockChart, legendHTML } from './chart.js';
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const CAL_DOW = ['일', '월', '화', '수', '목', '금', '토'];
@@ -109,7 +111,9 @@ chrome.tabs.onActivated.addListener(refreshContext);
 chrome.tabs.onUpdated.addListener((_id, info) => { if (info.url) refreshContext(); });
 
 // ── 뷰 전환 ──
+let clockChart = null;   // 결과 화면을 떠날 때 ResizeObserver를 끊어야 해서 붙잡아 둔다
 function show(view) {
+  if (view !== 'result') { clockChart?.destroy(); clockChart = null; }
   for (const v of ['home', 'run', 'result']) $(`view-${v}`).hidden = v !== view;
   $('back').style.display = view === 'home' ? 'none' : 'inline-flex';
   $('expand').style.display = view === 'result' ? 'inline-flex' : 'none';
@@ -333,9 +337,10 @@ function renderOvertime(d) {
     <div class="card">
       <h2>초과근무 요약<span class="side">${esc(d.month)}</span></h2>
       <div class="kpis">
-        <div class="kpi"><div class="l">초과근무 합계</div>
+        <div class="kpi wide"><div class="l">초과근무 합계 · 한도 52h</div>
           <div class="v" style="color:${over ? 'var(--red)' : 'var(--ink)'}">${esc(s.otText || '-')}</div>
-          <div class="l">주 52시간 ${over ? '초과 ⚠' : '이내'}</div></div>
+          ${gaugeHTML(s)}
+          <div class="l">주 52시간 ${over ? '초과 ⚠' : '이내'}${payNote(s)}</div></div>
         <div class="kpi"><div class="l">평일 초과</div><div class="v">${esc(s.wdOtText || '-')}</div></div>
         <div class="kpi"><div class="l">휴일 근무</div><div class="v">${esc(s.holText || '-')}</div></div>
         <div class="kpi"><div class="l">총 근로</div><div class="v" style="font-size:19px">${esc(s.totalText || '-')}</div>
@@ -344,10 +349,27 @@ function renderOvertime(d) {
       ${s.suspectDays ? `<p style="color:#c07d13;font-size:12.5px;margin:12px 0 0;font-weight:600">⚠ 미체크아웃 의심 ${s.suspectDays}일 — 합계에서 제외(회사 인정값 사용)</p>` : ''}
     </div>
     <div class="card">
+      <h2>출퇴근 시각 분포</h2>
+      <div class="chart-wrap">
+        <canvas id="clock"></canvas>
+        <div class="chart-tip" id="clock-tip" hidden></div>
+      </div>
+      <div class="chart-legend" id="clock-legend"></div>
+      <p class="foot">막대 = 그날 출근~퇴근. 위가 이른 시각이고 <b>아래로 길수록 야근</b>이다.
+        24시 빨간 선 아래는 익일 퇴근. 막대를 누르면 그날 상세가 나온다.</p>
+    </div>
+    <div class="card">
       <h2>일자별 <span class="side">초과·휴일근무·누락만</span></h2>
       <div class="ot-list" id="ot-rows"></div>
       <p class="foot">찐 출퇴근(펀치) 기준 · 초과 없는 평범한 날은 생략.</p>
     </div>`;
+
+  const days = d.days || [];
+  if (days.length) {
+    $('clock-legend').innerHTML = legendHTML(days);
+    clockChart?.destroy();
+    clockChart = mountClockChart($('clock'), $('clock-tip'), days);
+  }
 
   const rows = (d.days || []).filter((x) => x.otMin > 0 || x.holMin > 0 || x.missing || x.suspect);
   $('ot-rows').innerHTML = rows.map((x) => {
@@ -365,6 +387,25 @@ function renderOvertime(d) {
     </div>`;
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">초과근무·누락이 없어요 🎉</div>`;
 }
+
+// 52h 한도 게이지. 한도(52h)를 트랙 전체로 보고, 30h 지점에 수당 발생선을 세운다.
+// 한도를 넘긴 달은 트랙을 넘긴 만큼 빨갛게 채워 "얼마나 넘었나"가 바로 보이게 한다.
+const LIMIT_H = 52, PAY_H = 30;
+function gaugeHTML(s) {
+  const h = (s.otMin ?? s.otSum ?? 0) / 60 || s.otHours || 0;
+  const pct = Math.max(0, Math.min(100, (h / LIMIT_H) * 100));
+  const over = h > LIMIT_H;
+  return `<div class="gauge" role="img" aria-label="초과근무 ${h.toFixed(1)}시간 / 한도 ${LIMIT_H}시간">
+    <div class="gauge-fill" style="width:${pct}%;background:${over ? 'var(--red)' : h >= PAY_H ? '#e08b1a' : 'var(--blue)'}"></div>
+    <div class="gauge-mark" style="left:${(PAY_H / LIMIT_H) * 100}%" title="${PAY_H}시간부터 수당 발생"></div>
+  </div>`;
+}
+function payNote(s) {
+  const h = (s.otMin ?? s.otSum ?? 0) / 60 || s.otHours || 0;
+  if (h > LIMIT_H) return ` · 한도 ${(h - LIMIT_H).toFixed(1)}h 초과`;
+  return ` · 남은 ${(LIMIT_H - h).toFixed(1)}h`;
+}
+
 const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
 const fmtMinShort = (m) => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return h ? `${h}:${String(mm).padStart(2, '0')}` : `${mm}분`; };
 
