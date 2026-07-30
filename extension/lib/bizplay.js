@@ -2,7 +2,7 @@
 // 타임인아웃 근태로 증빙 가능 여부를 판정한다. src/lib/bizplay.mjs의 getYagunTaxi/getYasik에 대응.
 // ⚠ 상신(일괄결의)은 제외 — 실제 경비 시스템에 쓰기라 실계정 검증 후. 여기선 조회·판정까지.
 // ⚠ 카드영수증은 런처→새 탭→eusr_9001 iframe 구조라 라이브 검증 필요.
-import { openTab, closeTab, evaluate, clickOpensTab, findFrame, evaluateFrame } from './tab.js';
+import { openTab, closeTab, evaluate, evaluateMain, clickOpensTab, findFrame, evaluateFrame } from './tab.js';
 import { getOvertime } from './overtime.js';
 import { isNight, isYasikMeal, yasikClass } from '../core/expense.js';
 import { yagunDateOf } from '../core/calendar.js';
@@ -38,7 +38,9 @@ async function openCardApp(month, onProgress) {
   // → window.open을 가로채 URL만 뽑고, 그 URL을 확장이 직접 chrome.tabs.create로 연다(팝업 차단 없음).
   //   사용자가 팝업 허용 등 아무 조작도 할 필요 없음.
   const beforeUrl = await evaluate(launcher, () => location.href);
-  const openedUrl = await evaluate(launcher, () => new Promise((resolve) => {
+  // ⚠ 반드시 메인 월드에서. 기본 격리 월드에서 window.open을 덮어써 봐야 페이지의
+  //    onclick이 부르는 건 페이지 쪽 window.open이라 가로채지지 않는다.
+  const openedUrl = await evaluateMain(launcher, () => new Promise((resolve) => {
     const orig = window.open;
     let done = false;
     const finish = (u) => { if (done) return; done = true; window.open = orig; resolve(u || null); };
@@ -59,10 +61,17 @@ async function openCardApp(month, onProgress) {
     // 가로챈 URL을 확장이 직접 연다 (팝업 차단 회피)
     appTabId = await openTab(openedUrl);
   } else {
-    // 폴백1: 같은 탭이 앱으로 이동했는지  폴백2: 그래도 없으면 새 탭이 떴는지
+    // 폴백1: 클릭이 같은 탭을 앱으로 이동시켰는지
     await sleep(1200);
     const nowUrl = await evaluate(launcher, () => location.href).catch(() => beforeUrl);
     if (nowUrl && nowUrl !== beforeUrl && !/main_0003/.test(nowUrl)) appTabId = launcher;
+    // 폴백2: 팝업이 실제로 떴다면 그 탭을 잡는다. onCreated로 기다렸다가 로드 완료된 id를 받는다.
+    if (appTabId == null) {
+      appTabId = await clickOpensTab(launcher, () => {
+        const box = [...document.querySelectorAll('.app_box')].find((el) => /카드영수증/.test(el.textContent || '') && el.offsetParent !== null);
+        if (box) { const r = box.getBoundingClientRect(); (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || box).click(); }
+      });
+    }
   }
   if (appTabId == null) {
     await closeTab(launcher);

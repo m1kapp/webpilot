@@ -57,9 +57,10 @@ let loggedIn = false; // 시작은 로그아웃 — 로그인 흐름을 검증�
 // 근태 카드: "MM.DD (요일) ... IN hh:mm OUT hh:mm ... 인정시간 …" 형태를 흉내
 const OT_CARDS = [
   ['06.01', '월', '09:02', '18:30', '9시간 00분'],  // 초과 없음
-  ['06.02', '화', '09:00', '21:15', '9시간 00분'],  // 평일 초과 ~2.5h
+  ['06.02', '화', '09:00', '21:15', '9시간 00분'],  // 평일 초과 ~2.75h
   ['06.08', '월', '10:00', '20:00', '8시간 30분'],  // 초과 ~0.5h
   ['06.13', '토', '13:00', '17:00', '4시간 00분'],  // 휴일근무(토)
+  ['06.15', '월', '07:30', '19:00', '8시간 00분'],  // 이른 출근 — 야근식비 조식 인정 분기용
 ];
 const historyPage = `<!doctype html><html lang="ko"><body>
 <div>2026년 6월</div>
@@ -68,6 +69,63 @@ ${OT_CARDS.map(([md, dow, i, o, rec], k) => `
 </body></html>`;
 const tripListPage = `<!doctype html><html lang="ko"><body><ul></ul></body></html>`;  // 출장 없음
 const approvalPage = `<!doctype html><html lang="ko"><body>결재함 (신청 없음)</body></html>`;
+
+// ── 가짜 비즈플레이 (카드영수증) ──
+// 실제 구조를 흉내낸다: 런처의 앱 아이콘이 window.open으로 앱을 열고,
+// 앱 안의 eusr_9001 iframe에 '대기' 목록 표가 있다.
+//
+// 미결의 행 — 각 줄이 어느 판정으로 떨어지는지 주석에 적어 두었다.
+// (근태: 06.01 초과0 · 06.02 초과 2:45 · 06.08 10시 출근/초과 0:30 · 06.13 토 휴일 4h · 06.15 07:30 출근)
+const BZ_ROWS = [
+  // 야근택시: 택시 + 심야(23~03시)
+  ['법인카드', '2026-06-03 01:30', '카카오T 택시', 18000],   // 야근일=06-02(초과 있음) → 증빙 O
+  ['법인카드', '2026-06-05 23:40', '온다 택시', 21000],      // 야근일=06-05(근태 없음)   → 증빙 X
+  ['법인카드', '2026-06-14 00:20', '카카오T 택시', 15000],   // 야근일=06-13(토 휴일근무) → 증빙 O
+  ['법인카드', '2026-06-10 19:00', 'SKT 택시', 12000],       // 심야 아님(19시)          → 후보에서 제외
+  // 야근식비: 13,000원 이하 · 택시 아님 · 저녁(17~22) 또는 조식(05~09)
+  ['법인카드', '2026-06-02 19:30', '김밥천국', 8000],        // 저녁 + 그날 야근          → 인정
+  ['법인카드', '2026-06-15 07:00', '파리바게뜨', 6000],      // 조식 + 07:30 출근         → 인정
+  ['법인카드', '2026-06-01 18:30', 'CU편의점', 6500],        // 저녁이나 그날 야근 0      → 제외
+  ['법인카드', '2026-06-08 07:20', '스타벅스', 5000],        // 조식이나 10시 출근        → 제외
+  ['법인카드', '2026-06-09 07:10', '메가커피', 4500],        // 조식이나 근태 없음        → 제외
+  ['법인카드', '2026-06-11 12:30', '한솥도시락', 9000],      // 점심시간대                → 후보에서 제외
+  ['법인카드', '2026-06-12 19:00', '삼겹살집', 45000],       // 저녁이나 13,000원 초과    → 후보에서 제외
+];
+// 페이지 크기 확대 루프(30행 넘을 때까지 재시도)를 첫 판에 통과시키려고 채우는 무관한 행들.
+// 금액이 크고 택시도 식사 시간대도 아니라 양쪽 필터에서 모두 걸러진다.
+const BZ_FILLER = Array.from({ length: 28 }, (_, i) =>
+  ['법인카드', `2026-06-${String((i % 28) + 1).padStart(2, '0')} 12:00`, '사무용품 구매', 50000]);
+
+const bzLauncher = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
+<h1>비즈플레이</h1>
+<div class="app_box" style="width:160px;height:90px;border:1px solid #ccc;display:flex;align-items:center;justify-content:center"
+     onclick="window.open('/eusr_app.act')">카드영수증</div>
+</body></html>`;
+
+const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
+<iframe src="/eusr_9001.act" style="width:100%;height:700px;border:0"></iframe>
+</body></html>`;
+
+const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
+<div>
+  조회기간
+  <input id="START_DT"><input id="SHOW_START_DT"><input id="BASE_START_DT">
+  <input id="END_DT"><input id="SHOW_END_DT"><input id="BASE_END_DT">
+</div>
+<div><span id="tab-wait" style="cursor:pointer">대기 (${BZ_ROWS.length + BZ_FILLER.length})</span> <span>완료 (0)</span></div>
+<div id="paging_size"><span class="btn_combo_down">▾</span><ul><li><a href="#">100</a></li><li><a href="#">200</a></li></ul></div>
+<table><tbody id="tableList"></tbody></table>
+<script>
+  var ROWS = ${JSON.stringify([...BZ_ROWS, ...BZ_FILLER])};
+  // 실제 화면처럼 '대기' 탭을 눌러야 목록이 채워진다.
+  document.getElementById('tab-wait').addEventListener('click', function () {
+    document.getElementById('tableList').innerHTML = ROWS.map(function (r, i) {
+      var amt = r[3].toLocaleString('en-US');
+      return '<tr><td><input type="checkbox"></td><td>' + (i + 1) + '</td><td>' + r[0] + '</td><td>' + r[1] +
+             '</td><td>' + r[2] + '</td><td>승인</td><td>-</td><td>' + amt + '</td></tr>';
+    }).join('');
+  });
+<\/script></body></html>`;
 
 // 자체서명 인증서 (--ignore-certificate-errors와 함께 씀)
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -87,6 +145,15 @@ const server = createServer(
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     const path = req.url.split('?')[0];
+
+    // 비즈플레이 — 런처 → 앱 → 데이터 프레임
+    if ((req.headers.host || '').includes('bizplay')) {
+      if (path === '/main_0003_01.act') return res.end(bzLauncher);
+      if (path === '/eusr_app.act') return res.end(bzApp);
+      if (path === '/eusr_9001.act') return res.end(bzFrame);
+      return res.end('<!doctype html><body>비즈플레이</body>');
+    }
+
     if (path === '/') return res.end(loginLanding);          // openLoginAndWait가 연 로그인 창
     if (path === '/__done') { loggedIn = true; return res.end('<!doctype html><body>로그인 완료</body>'); } // 성공 → 비밀번호칸 없음
     if (!loggedIn) return res.end(loginPage);                 // 로그아웃 상태에서 데이터 요청 → 로그인 폼
@@ -106,7 +173,7 @@ const ctx = await chromium.launchPersistentContext(join(workdir, 'profile'), {
   args: [
     `--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
-    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT}`,
+    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT}`,
     '--ignore-certificate-errors',
   ],
 });
@@ -290,6 +357,44 @@ const ctxOk = /타임인아웃/.test(hotHeader) && /연차|초과근무/.test(fi
 checks.push(['사이트 컨텍스트 정렬', ctxOk]);
 await page.screenshot({ path: '/tmp/ext-context.png' });
 await timeinoutTab.close();
+
+// ── 야근택시·야근식비 (가짜 비즈플레이) ──
+// 런처 → window.open 가로채기 → eusr_9001 프레임 → '대기' 목록 → 근태 대조까지 전 구간.
+async function runExpense(id, month = '2026-06') {
+  await page.goto(`chrome-extension://${extId}/page/index.html`);
+  await page.waitForSelector(`.auto[data-id="${id}"]`);
+  await page.$eval('#month', (el) => { el.value = '2026-06'; });
+  await page.click(`.auto[data-id="${id}"]`);
+  await page.waitForSelector('#view-result:not([hidden])', { timeout: 90000 })
+    .catch(async () => { throw new Error(`${id} 실패 — 오류창: ` + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
+  await page.waitForTimeout(300);
+  return {
+    kpis: await page.$eval('.kpis', (e) => e.innerText.replace(/\s+/g, ' ')),
+    rows: await page.$$eval('#ex-rows .cr-row', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim())),
+  };
+}
+
+console.log('\n── 야근택시 조회 ──');
+const yagun = await runExpense('yagun');
+console.log('요약:', yagun.kpis);
+for (const r of yagun.rows) console.log('  ', r);
+// 택시 4건 중 심야 3건만 후보. 그중 06-02(초과 있음)·06-13(휴일근무) 2건이 증빙 O.
+const yagunOk = /증빙 있음/.test(yagun.kpis) && yagun.rows.length === 3
+  && yagun.rows.filter((r) => r.endsWith('✓')).length === 2   // '그날 야근 기록 없음'도 '야근'을 포함하므로 배지로 센다
+  && !yagun.rows.some((r) => /SKT/.test(r));            // 19시 택시는 후보에서 빠져야 한다
+
+console.log('\n── 야근식비 조회 ──');
+const yasik = await runExpense('yasik');
+console.log('요약:', yasik.kpis);
+for (const r of yasik.rows) console.log('  ', r);
+// 5건 후보(점심·고액 제외). 저녁+야근 1건, 조식+이른출근 1건 = 인정 2건.
+const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
+  && yasik.rows.filter((r) => r.endsWith('✓')).length === 2
+  && !yasik.rows.some((r) => /한솥|삼겹살/.test(r))     // 점심시간·13,000원 초과는 후보에서 제외
+  && /파리바게뜨/.test(yasik.rows.join(' '))            // 조식 인정 분기가 실제로 돈다
+  && /김밥천국/.test(yasik.rows.join(' '));             // 저녁 인정 분기가 실제로 돈다
+
+checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk]);
 
 // 자동화 5개 전부 상단바 제목이 제 이름으로 바뀌는지.
 // 제목은 start()에서 실행 전에 세워지므로 수집이 성공할 필요가 없다 —

@@ -30,13 +30,19 @@ export async function goto(tabId, url) {
 // page.evaluate(fn, arg)와 같은 자리.
 // 주의: func는 문자열로 직렬화돼 페이지로 건너간다 — 바깥 변수·import를 데려갈 수 없다.
 // 페이지에서는 "원문만 꺼내고", 해석은 백그라운드에서 코어(src/core)로 한다.
-export async function evaluate(tabId, func, args) {
+export async function evaluate(tabId, func, args, { world } = {}) {
   // args를 넘기지 않은 호출에서 [undefined]가 되면 "Value is unserializable"로 실패한다 → 있을 때만 붙인다
   const injection = { target: { tabId }, func };
   if (args !== undefined) injection.args = [args];
+  if (world) injection.world = world;
   const [res] = await chrome.scripting.executeScript(injection);
   return res?.result;
 }
+
+// 페이지 자신의 전역(window.open 등)을 건드려야 할 때. 기본 격리 월드에서 window.open을
+// 바꿔 봐야 페이지의 onclick이 부르는 건 메인 월드 쪽이라 아무 효과가 없다.
+// ⚠ 메인 월드는 페이지 스크립트와 같은 공간이다 — 읽고 되돌리는 짧은 조작에만 쓴다.
+export const evaluateMain = (tabId, func, args) => evaluate(tabId, func, args, { world: 'MAIN' });
 
 export async function closeTab(tabId) {
   await chrome.tabs.remove(tabId).catch(() => {});
