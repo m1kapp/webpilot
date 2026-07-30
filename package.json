@@ -13,7 +13,8 @@
     "ext:e2e": "node scripts/ext-e2e.mjs",
     "ext:shot": "node scripts/ot-shot.mjs",
     "ext:month": "node scripts/ext-month.mjs",
-    "ext:parity": "node scripts/summary-parity.mjs"
+    "ext:parity": "node scripts/summary-parity.mjs",
+    "ext:break": "node scripts/break-rule.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

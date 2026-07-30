@@ -35,6 +35,8 @@ const EMPTY = { base: 0, am: 0, lunch: 0, pm: 0, dinner: 0, ot: 0, hol: 0, leave
 const hh2dec = (s) => { const m = /(\d{1,2}):(\d{2})/.exec(s || ''); return m ? +m[1] + +m[2] / 60 : null; };
 
 // 출근~퇴근 구간을 근무/휴게/야근으로 쪼갠다. 휴게는 실제 펀치가 아니라 규정상 공제분이라 순서대로 깎는다.
+// 여기서 떼는 휴게 총량은 attendance.breakMinFor와 반드시 같아야 한다 —
+// 어긋나면 막대에 보이는 야근 길이와 합계 숫자가 따로 논다.
 function splitWorkday(inH, outH) {
   if (inH == null || outH == null) return { ...EMPTY };
   let left = outH - inH;

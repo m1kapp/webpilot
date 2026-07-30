@@ -5,7 +5,18 @@ import { fmt, hhmm, kstNow, parseDurMin, parseTimeH, serialToDate } from './util
 
 export const DAILY_BASE = 8 * 60;      // 480분
 export const MONTH_LIMIT = 52 * 60;    // 3120분
-export const BREAK_MIN = 90;           // 점심 60 + 저녁 30
+export const BREAK_MIN = 90;           // 점심 60 + 저녁 30 (하루 최대 공제)
+
+// 휴게는 근무가 길어질수록 순서대로 붙는다 — 4시간 일하고 점심 1시간, 다시 4시간 일하고 저녁 30분.
+// 차트(clockchart)가 막대를 쪼개는 방식과 같은 규칙이다. 예전에는 여기서만 일괄 90분을 빼서,
+// 반차처럼 짧은 날에도 먹지도 않은 저녁 30분이 공제돼 근로시간이 실제보다 적게 잡혔다.
+// 9시간 30분 이상 머문 날은 결과가 90분으로 같다 — 즉 초과근무가 나는 날의 숫자는 변하지 않는다.
+export function breakMinFor(spanH) {
+  if (spanH == null || !(spanH > 0)) return 0;
+  const lunch = Math.min(Math.max(0, spanH - 4), 1);
+  const dinner = Math.min(Math.max(0, spanH - 9), 0.5);
+  return (lunch + dinner) * 60;
+}
 export const SUSPECT_MIN = 16 * 60;    // 16시간 초과 = 미체크아웃 의심
 
 // 공용 계산부: 정규화 byDay { inH, outH(익일이면 >24), recogMin, policy, inStat, outStat, nonWork } → days + summary
@@ -32,7 +43,8 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
     const projected = dateStr === todayStr && hasIn && !hasOut;
     if (projected) hasOut = true;
     const effOutH = projected ? nowH : (e && e.outH != null ? e.outH : null);
-    const rawWork = (hasIn && hasOut) ? Math.max(0, (effOutH - e.inH) * 60 - BREAK_MIN) : 0; // 찐 근로(휴게 제외)
+    const spanH = (hasIn && hasOut) ? effOutH - e.inH : null;                  // 출근~퇴근 체류 시간
+    const rawWork = spanH != null ? Math.max(0, spanH * 60 - breakMinFor(spanH)) : 0; // 찐 근로(휴게 제외)
     const recogWork = e ? (e.recogMin || 0) : 0;                // 회사 인정 근로
     const suspect = rawWork > SUSPECT_MIN;                       // 미체크아웃 의심
     // 보정: 의심일은 회사 인정값으로 대체
@@ -156,7 +168,12 @@ export function summarizeDays(days, { excludeCorrected = true } = {}) {
 // 컬럼: 0날짜 7근로정책상세 8실출근 9실퇴근 10인정출근 11인정퇴근 12출근상태 13퇴근상태 15비업무
 export function rowsToByDay(rows) {
   const toH = (serial, inSerial) => serial == null ? null : +(((serial - Math.floor(inSerial ?? serial)) * 24)).toFixed(4);
-  const netWork = (a, b) => (a == null || b == null) ? 0 : Math.max(0, (b - a) * 1440 - BREAK_MIN);
+  // 엑셀 시리얼(하루=1)이라 24를 곱해 시간으로 바꿔 휴게를 매긴다.
+  const netWork = (a, b) => {
+    if (a == null || b == null) return 0;
+    const spanH = (b - a) * 24;
+    return Math.max(0, spanH * 60 - breakMinFor(spanH));
+  };
   const byDay = {};
   for (const r of rows) {
     const s = r[0]; if (typeof s !== 'number') continue;
