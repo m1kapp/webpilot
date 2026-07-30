@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webwing — 근태·경비, 클릭 한 번</title>
+<meta name="description" content="타임인아웃·비즈플레이·Flow에 이미 로그인된 세션을 빌려 근태와 경비를 집계하는 크롬 확장.">
+
+<style>
+  /* 아티팩트 런타임이 넣어주던 리셋을 단독 문서용으로 옮겨 담는다. */
+  *, *::before, *::after { box-sizing:border-box; }
+  body, h1, h2, h3, p, ul, ol, figure { margin:0; }
+  ul, ol { padding:0; }
+  img, svg { max-width:100%; display:block; }
+  :root {
+    --ink:#1e2536; --muted:#7f889c; --faint:#a8b0c2;
+    --line:#e7ebf5; --line-hard:#d5dbe9;
+    --blue:#3b6fe0; --blue-soft:#eaf0fe; --blue-ink:#2a54b4;
+    --ok:#12a150; --ok-soft:#e7f6ed;
+    --warn-ink:#9a6b3f; --warn-soft:#fbf1e4;
+    --bg:#f4f6fb; --card:#fff;
+    --shadow:0 12px 30px -22px rgba(30,37,54,.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:#e8ebf4; --muted:#8e97ac; --faint:#5d667b;
+      --line:#272f41; --line-hard:#333d52;
+      --blue:#7b9df2; --blue-soft:#1e2942; --blue-ink:#a8c0f8;
+      --ok:#4ec27f; --ok-soft:#16301f;
+      --warn-ink:#d7a970; --warn-soft:#2e2418;
+      --bg:#111624; --card:#191f2e;
+      --shadow:0 12px 30px -22px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:#e8ebf4; --muted:#8e97ac; --faint:#5d667b;
+    --line:#272f41; --line-hard:#333d52;
+    --blue:#7b9df2; --blue-soft:#1e2942; --blue-ink:#a8c0f8;
+    --ok:#4ec27f; --ok-soft:#16301f;
+    --warn-ink:#d7a970; --warn-soft:#2e2418;
+    --bg:#111624; --card:#191f2e;
+    --shadow:0 12px 30px -22px rgba(0,0,0,.8);
+  }
+  :root[data-theme="light"] {
+    --ink:#1e2536; --muted:#7f889c; --faint:#a8b0c2;
+    --line:#e7ebf5; --line-hard:#d5dbe9;
+    --blue:#3b6fe0; --blue-soft:#eaf0fe; --blue-ink:#2a54b4;
+    --ok:#12a150; --ok-soft:#e7f6ed;
+    --warn-ink:#9a6b3f; --warn-soft:#fbf1e4;
+    --bg:#f4f6fb; --card:#fff;
+    --shadow:0 12px 30px -22px rgba(30,37,54,.5);
+  }
+
+  :root {
+    --sans:-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    --mono:ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", monospace;
+  }
+
+  body {
+    background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:15px; line-height:1.72;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:680px; margin:0 auto; padding:0 22px 96px; }
+
+  /* ── 공용 조판 ────────────────────────────── */
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; font-weight:600;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--faint);
+  }
+  h1, h2, h3 { text-wrap:balance; letter-spacing:-.02em; }
+  a { color:var(--blue); text-decoration-thickness:1px; text-underline-offset:2px; }
+  :focus-visible { outline:2px solid var(--blue); outline-offset:3px; border-radius:4px; }
+
+  /* 섹션 = 원장(ledger) 한 칸. 카드가 아니라 괘선으로 나눈다. */
+  section { border-top:1px solid var(--line); padding-top:30px; margin-top:44px; }
+  section > .eyebrow { display:block; margin-bottom:14px; }
+  section h2 { font-size:20px; font-weight:700; margin-bottom:8px; }
+  section p { color:var(--muted); }
+
+  /* ── 머리 ─────────────────────────────────── */
+  header { padding:64px 0 4px; }
+  .mark { display:flex; align-items:center; gap:9px; margin-bottom:34px; }
+  .mark .glyph {
+    width:26px; height:26px; border-radius:8px; background:var(--blue);
+    display:grid; place-items:center; color:#fff;
+    font-family:var(--mono); font-size:13px; font-weight:700;
+  }
+  .mark .name { font-weight:700; font-size:15px; letter-spacing:-.01em; }
+  .mark .ver { font-family:var(--mono); font-size:11.5px; color:var(--faint); }
+
+  header h1 { font-size:34px; font-weight:750; line-height:1.28; margin-bottom:16px; }
+  header h1 em { font-style:normal; color:var(--blue); }
+  header .lede { font-size:16.5px; color:var(--muted); max-width:33em; }
+
+  /* ── 근태표 행 — 이 페이지의 뼈대 ──────────── */
+  .ledger { margin-top:22px; }
+  .row {
+    display:grid; grid-template-columns:44px 1fr auto;
+    align-items:center; gap:14px;
+    padding:15px 2px; border-top:1px solid var(--line);
+  }
+  .row:first-child { border-top:0; }
+  .row .slot {
+    justify-self:start; width:44px; padding:5px 0; border-radius:9px;
+    background:var(--blue-soft); text-align:center;
+    font-family:var(--mono); font-variant-numeric:tabular-nums;
+    font-size:14px; font-weight:700; color:var(--blue-ink); line-height:1.15;
+  }
+  .row .slot small { display:block; font-size:9.5px; font-weight:600; letter-spacing:.06em; opacity:.72; }
+  .row .body strong { display:block; font-size:15px; font-weight:650; }
+  .row .body span { display:block; font-size:13px; color:var(--muted); line-height:1.55; }
+  .row .tags { display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; max-width:150px; }
+  .tag {
+    font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.02em;
+    padding:2.5px 7px; border-radius:6px;
+    background:var(--card); border:1px solid var(--line-hard); color:var(--muted);
+  }
+  .tag.need { background:var(--warn-soft); border-color:transparent; color:var(--warn-ink); }
+
+  /* ── 설치 절차 — 순서가 정보이므로 번호를 쓴다 ── */
+  ol.steps { list-style:none; display:flex; flex-direction:column; gap:20px; margin-top:22px; }
+  ol.steps > li { display:grid; grid-template-columns:26px 1fr; gap:14px; align-items:start; }
+  ol.steps .n {
+    width:26px; height:26px; border-radius:50%; margin-top:2px;
+    border:1px solid var(--line-hard); display:grid; place-items:center;
+    font-family:var(--mono); font-size:12px; font-weight:700; color:var(--muted);
+  }
+  ol.steps .t { font-weight:600; }
+  ol.steps .d { font-size:13.5px; color:var(--muted); }
+
+  code, .cmd {
+    font-family:var(--mono); font-variant-numeric:tabular-nums;
+    font-size:12.5px; background:var(--card);
+    border:1px solid var(--line); border-radius:7px;
+  }
+  code { padding:2px 6px; }
+  .cmd { display:block; padding:11px 14px; margin-top:9px; overflow-x:auto; white-space:nowrap; color:var(--ink); }
+  .cmd .p { color:var(--faint); user-select:none; }
+
+  /* ── 행동 ─────────────────────────────────── */
+  .cta { display:flex; flex-wrap:wrap; gap:11px; align-items:center; margin-top:28px; }
+  .btn {
+    display:inline-flex; align-items:center; gap:8px;
+    padding:11px 20px; border-radius:11px;
+    font-size:14.5px; font-weight:650; text-decoration:none;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn.solid { background:var(--blue); color:#fff; box-shadow:var(--shadow); }
+  .btn.solid:hover { transform:translateY(-1px); }
+  .btn.quiet { border:1px solid var(--line-hard); color:var(--ink); background:var(--card); }
+  .btn.quiet:hover { border-color:var(--blue); color:var(--blue); }
+  .cta .note { font-size:12.5px; color:var(--faint); }
+
+  /* ── 상태 배너 ────────────────────────────── */
+  .status {
+    display:flex; gap:11px; align-items:flex-start;
+    background:var(--card); border:1px solid var(--line);
+    border-radius:13px; padding:14px 16px; margin-top:26px;
+  }
+  .status .dot { flex:none; width:7px; height:7px; border-radius:50%; background:var(--ok); margin-top:8px; }
+  .status .dot.pending { background:var(--warn-ink); }
+  .status b { font-size:13.5px; font-weight:650; }
+  .status p { font-size:13px; margin-top:1px; }
+
+  /* ── 안전 항목 ────────────────────────────── */
+  ul.facts { list-style:none; display:flex; flex-direction:column; gap:13px; margin-top:20px; }
+  ul.facts li { display:grid; grid-template-columns:16px 1fr; gap:11px; font-size:14px; }
+  ul.facts .chk { color:var(--ok); font-weight:800; font-size:13px; line-height:1.7; }
+  ul.facts b { font-weight:650; }
+  ul.facts span { color:var(--muted); }
+
+  footer {
+    border-top:1px solid var(--line); margin-top:52px; padding-top:22px;
+    font-size:12.5px; color:var(--faint);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  footer .mono { font-family:var(--mono); }
+
+  @media (max-width:520px) {
+    header h1 { font-size:27px; }
+    .row { grid-template-columns:38px 1fr; row-gap:9px; }
+    .row .slot { width:38px; }
+    .row .tags { grid-column:2; justify-content:flex-start; max-width:none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition:none !important; animation:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="mark">
+      <span class="glyph">W</span>
+      <span class="name">Webwing</span>
+      <span class="ver">v0.1.0</span>
+    </div>
+
+    <h1>연차·초과근무 계산,<br><em>매달 하지 말자</em></h1>
+    <p class="lede">
+      타임인아웃·비즈플레이·Flow에 <strong>이미 로그인된 세션</strong>을 빌려
+      근태와 경비를 대신 집계하는 크롬 확장. 아이디도 비밀번호도 묻지 않는다.
+    </p>
+
+    <div class="cta">
+      <a class="btn solid" href="#install">설치하기</a>
+      <a class="btn quiet" href="#what">뭘 해주는데</a>
+      <span class="note">크롬 · 엣지 · 웨일</span>
+    </div>
+
+    <div class="status">
+      <span class="dot pending"></span>
+      <div>
+        <b>지금은 파일럿 단계</b>
+        <p>스토어 등록 심사 전이라 아래 <a href="#install">개발자 모드 설치</a>로 먼저 써본다.
+           등록이 끝나면 이 자리에 <strong>크롬에 추가</strong> 버튼 하나만 남는다.</p>
+      </div>
+    </div>
+  </header>
+
+  <section id="what">
+    <span class="eyebrow">Automations · 5</span>
+    <h2>사이드 패널에서 고르고, 기다리면 끝</h2>
+    <p>월/연도만 고르면 백그라운드 탭이 잠깐 열렸다 닫히면서 결과가 나온다.</p>
+
+    <div class="ledger">
+      <div class="row">
+        <div class="slot">연차<small>YEAR</small></div>
+        <div class="body">
+          <strong>내 연차 현황</strong>
+          <span>잔여·사용 이력을 연간 달력 한 장으로</span>
+        </div>
+        <div class="tags"><span class="tag">타임인아웃</span></div>
+      </div>
+
+      <div class="row">
+        <div class="slot">OT<small>MONTH</small></div>
+        <div class="body">
+          <strong>초과근무 분석</strong>
+          <span>결재 기록 말고 찐 출퇴근 시각으로 집계</span>
+        </div>
+        <div class="tags"><span class="tag">타임인아웃</span></div>
+      </div>
+
+      <div class="row">
+        <div class="slot">정정<small>MONTH</small></div>
+        <div class="body">
+          <strong>출퇴근 정정</strong>
+          <span>누락된 날을 Flow 일정과 대조해 출퇴근 시각을 제안</span>
+        </div>
+        <div class="tags"><span class="tag">타임인아웃</span><span class="tag need">Flow 키</span></div>
+      </div>
+
+      <div class="row">
+        <div class="slot">택시<small>MONTH</small></div>
+        <div class="body">
+          <strong>야근택시 조회</strong>
+          <span>심야 택시 결제를 근태와 맞춰 증빙 가능 여부 판정</span>
+        </div>
+        <div class="tags"><span class="tag">비즈플레이</span><span class="tag">타임인아웃</span></div>
+      </div>
+
+      <div class="row">
+        <div class="slot">식비<small>MONTH</small></div>
+        <div class="body">
+          <strong>야근식비 조회</strong>
+          <span>혼자 쓴 식대를 야근·조식 인정 기준으로 분류</span>
+        </div>
+        <div class="tags"><span class="tag">비즈플레이</span><span class="tag">타임인아웃</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <span class="eyebrow">Install · 약 1분</span>
+    <h2>설치</h2>
+    <p>지금은 압축을 푼 폴더를 크롬에 직접 물리는 방식이다.</p>
+
+    <ol class="steps">
+      <li>
+        <span class="n">1</span>
+        <div>
+          <div class="t">zip 내려받아 압축 풀기</div>
+          <div class="d">공지에 올라온 <code>webwing-extension-0.1.0.zip</code>. 푼 폴더 위치는 지우지 말 것 — 크롬이 그 경로를 계속 참조한다.</div>
+        </div>
+      </li>
+      <li>
+        <span class="n">2</span>
+        <div>
+          <div class="t">확장 관리 화면 열고 개발자 모드 켜기</div>
+          <div class="d">주소창에 붙여넣고, 우측 상단 토글을 켠다.</div>
+          <span class="cmd"><span class="p">chrome://</span>extensions</span>
+        </div>
+      </li>
+      <li>
+        <span class="n">3</span>
+        <div>
+          <div class="t">압축해제된 확장 프로그램을 로드</div>
+          <div class="d">1번에서 푼 폴더를 선택한다. 툴바에 <strong>W</strong> 아이콘이 생기면 성공.</div>
+        </div>
+      </li>
+      <li>
+        <span class="n">4</span>
+        <div>
+          <div class="t">쓰려는 서비스에 로그인해두기</div>
+          <div class="d">확장은 로그인을 대신 하지 않고 <em>이미 열려 있는 세션</em>만 빌린다.
+            <a href="https://user.timeinout.kr/">타임인아웃</a>은 필수,
+            택시·식비를 볼 거면 <a href="https://www.bizplay.co.kr/">비즈플레이</a>도.</div>
+        </div>
+      </li>
+      <li>
+        <span class="n">5</span>
+        <div>
+          <div class="t">툴바 아이콘 클릭</div>
+          <div class="d">사이드 패널이 열린다. 자동화 고르고 기간만 선택하면 된다.</div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="status">
+      <span class="dot pending"></span>
+      <div>
+        <b>“로그인되어 있지 않습니다”가 뜨면</b>
+        <p>세션이 풀린 것뿐이다. 확장이 열어주는 로그인 탭에서 로그인하면 자동으로 다시 실행된다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Privacy</span>
+    <h2>비밀번호를 안 받는 게 핵심이다</h2>
+    <p>같은 일을 하던 데스크톱 앱은 계정 정보를 각 PC에 저장해야 했다. 확장으로 옮긴 이유가 이것이다.</p>
+
+    <ul class="facts">
+      <li><span class="chk">✓</span><span><b>계정 정보를 묻지도 저장하지도 않는다.</b> 브라우저에 이미 있는 로그인 세션만 쓴다.</span></li>
+      <li><span class="chk">✓</span><span><b>서버로 보내는 데이터가 없다.</b> 수집·계산·표시가 전부 브라우저 안에서 끝난다. 분석 도구도, 수집 서버도 붙어 있지 않다.</span></li>
+      <li><span class="chk">✓</span><span><b>접근 권한은 세 도메인뿐.</b> <code>user.timeinout.kr</code> · <code>www.bizplay.co.kr</code> · <code>api.flow.team</code>. 다른 탭은 읽지 못한다.</span></li>
+      <li><span class="chk">✓</span><span><b>보는 건 본인 것.</b> 로그인한 계정으로 볼 수 있는 범위를 그대로 따른다.</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>Webwing · 사내 근태·경비 자동화</span>
+    <span class="mono">v0.1.0 · Chrome MV3</span>
+  </footer>
+
+</div>
+
+</body>
+</html>
