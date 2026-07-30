@@ -11,7 +11,8 @@
     "ext:sync": "node scripts/ext-sync.mjs",
     "ext:zip": "node scripts/ext-zip.mjs",
     "ext:e2e": "node scripts/ext-e2e.mjs",
-    "ext:shot": "node scripts/ot-shot.mjs"
+    "ext:shot": "node scripts/ot-shot.mjs",
+    "ext:month": "node scripts/ext-month.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

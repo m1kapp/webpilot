@@ -17,7 +17,9 @@ export async function getOvertime(month, onProgress = () => {}) {
     onProgress('근태 카드 조회 중');
     const [ty, tm] = month.split('-').map(Number);
     await navigateToMonth(tabId, ty, tm);
-    const { cards, hrefs } = await scrapeCards(tabId);
+    const { cards, hrefs, monthOf, label } = await scrapeCards(tabId);
+    // 화면이 실제로 목표월인지 확인한다. 이걸 안 하면 다른 달 카드가 요청한 달로 둔갑한다.
+    assertMonthMatches(month, ty, tm, label, monthOf);
 
     onProgress('경계일(자정 넘김) 보정 중');
     const overrides = await fixSpillover(tabId, cards, hrefs);
@@ -39,42 +41,77 @@ export async function getOvertime(month, onProgress = () => {}) {
 // 헤더의 "YYYY년 M월" 라벨을 목표월까지 ◀/▶ 눌러 이동.
 // 데스크톱은 라벨 좌우 좌표를 클릭하지만, 확장에선 라벨 주변의 실제 클릭 요소를 눌러야 한다.
 // ⚠ 실제 마크업 의존 — 연도 이동과 같은 부류의 라이브 검증 필요 지점.
+const readMonthLabel = (tabId) =>
+  evaluate(tabId, () => (document.body.innerText.match(/(\d{4})년\s*(\d{1,2})월/) || [])[0] || '');
+
 async function navigateToMonth(tabId, ty, tm) {
   for (let i = 0; i < 24; i++) {
-    const label = await evaluate(tabId, () => (document.body.innerText.match(/(\d{4})년\s*(\d{1,2})월/) || [])[0] || '');
+    const label = await readMonthLabel(tabId);
     const lm = label.match(/(\d{4})년\s*(\d{1,2})월/);
     if (lm && +lm[1] === ty && +lm[2] === tm) return;
     const cur = lm ? +lm[1] * 12 + +lm[2] : ty * 12 + tm;
     const goPrev = cur > ty * 12 + tm;
-    const moved = await evaluate(tabId, (prev) => {
-      // 월 라벨 요소를 찾고, 그 좌우의 클릭 가능한 형제(화살표)를 누른다.
+
+    await evaluate(tabId, (prev) => {
       const all = [...document.querySelectorAll('*')];
       const labelEl = all.find((el) => el.children.length === 0 && /\d{4}년\s*\d{1,2}월/.test(el.textContent || ''));
-      if (!labelEl) return false;
+      if (!labelEl) return;
+      // el.click()만으로는 안 먹는 화살표가 있어(포인터 이벤트로 동작) 전체 시퀀스를 흘려보낸다.
+      const fire = (el) => {
+        if (!el || el === labelEl) return false;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+        }
+        return true;
+      };
+      // 1순위: 데스크톱과 같은 발상 — 라벨 좌우 좌표에 실제로 있는 요소를 누른다.
+      const r = labelEl.getBoundingClientRect();
+      const y = r.top + r.height / 2;
+      for (const dx of [20, 28, 40]) {
+        const el = document.elementFromPoint(prev ? r.left - dx : r.right + dx, y);
+        if (fire(el)) return;
+      }
+      // 2순위: 라벨 주변에서 화살표처럼 생긴 요소를 찾는다(문서 순서상 앞=이전, 뒤=다음).
       const row = labelEl.closest('div, header, nav, section') || labelEl.parentElement;
       const clickable = [...row.querySelectorAll('a,button,i,span,[onclick],[class*=prev],[class*=next],[class*=arrow]')]
-        .filter((el) => el.offsetParent !== null);
-      if (clickable.length < 2) {
-        // 화살표를 못 찾으면 라벨 좌우 좌표로 클릭 시도(데스크톱과 동일 발상)
-        const r = labelEl.getBoundingClientRect();
-        const x = prev ? r.left - 20 : r.right + 20;
-        const el = document.elementFromPoint(x, r.top + r.height / 2);
-        if (el) { el.click(); return true; }
-        return false;
-      }
-      // 문서 순서상 앞=이전, 뒤=다음으로 가정
-      (prev ? clickable[0] : clickable[clickable.length - 1]).click();
-      return true;
+        .filter((el) => el.offsetParent !== null && !el.contains(labelEl));
+      if (clickable.length >= 2) fire(prev ? clickable[0] : clickable[clickable.length - 1]);
     }, goPrev);
-    if (!moved) return; // 더 못 움직이면 현재 화면 그대로 진행
+
     await sleep(1100);
+    // 라벨이 그대로면 어떤 방법도 안 먹은 것. 더 돌아도 같으니 멈추고 호출부 검증에 맡긴다.
+    if (await readMonthLabel(tabId) === label) return;
+  }
+}
+
+// 목표월 화면인지 확인. 화살표 클릭은 실제 마크업에 기대는 취약한 방식이라
+// 조용히 실패할 수 있는데, 그때 다른 달 숫자를 요청한 달의 결과로 내놓으면
+// 합계·휴일근무가 통째로 틀린 채 그럴듯해 보인다. 틀린 답보다 실패가 낫다.
+function assertMonthMatches(month, ty, tm, label, monthOf) {
+  const lm = /(\d{4})년\s*(\d{1,2})월/.exec(label || '');
+  const seen = [...new Set(Object.values(monthOf || {}))];
+  const wrongCards = seen.filter((mo) => mo !== tm);
+  const labelOk = lm ? +lm[1] === ty && +lm[2] === tm : null;
+
+  if (labelOk === false || wrongCards.length) {
+    const shown = lm ? `${lm[1]}년 ${lm[2]}월` : (wrongCards.length ? `${wrongCards.join('·')}월` : '알 수 없음');
+    const e = new Error(`${ty}년 ${tm}월 화면으로 이동하지 못했어요`);
+    e.detail = `타임인아웃이 ${shown} 화면에 머물러 있어요. 그대로 계산하면 다른 달 기록이 ${month} 결과로 나오기 때문에 중단했습니다.\n`
+      + `타임인아웃 근태 현황에서 ${ty}년 ${tm}월로 직접 옮긴 뒤 다시 시도해주세요. 계속 실패하면 알려주세요 — 월 이동 버튼 모양이 바뀐 것일 수 있어요.`;
+    throw e;
+  }
+  // 라벨을 아예 못 읽었는데 카드도 없으면 빈 달인지 이동 실패인지 구분이 안 된다.
+  if (labelOk === null && !seen.length) {
+    const e = new Error(`${ty}년 ${tm}월 기록을 확인하지 못했어요`);
+    e.detail = '타임인아웃 화면에서 월 표시와 근태 카드를 둘 다 찾지 못했어요. 로그인이 풀렸거나 화면 구조가 바뀐 것일 수 있어요.';
+    throw e;
   }
 }
 
 // 근태 카드 스크래핑 — 데스크톱 page.evaluate 그대로.
 async function scrapeCards(tabId) {
   return evaluate(tabId, () => {
-    const cand = {}, href = {};
+    const cand = {}, href = {}, monthOf = {};
     document.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 10) return;
       const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
@@ -83,11 +120,13 @@ async function scrapeCards(tabId) {
       const day = parseInt(dm[2], 10);
       if (!cand[day] || t.length < cand[day].length) {
         cand[day] = t;
+        monthOf[day] = parseInt(dm[1], 10);   // 카드에 찍힌 '월' — 다른 달 화면인지 가려내는 근거
         const a = el.matches('a[href*="InOutDetail"]') ? el : el.querySelector('a[href*="InOutDetail"]');
         if (a) href[day] = a.getAttribute('href');
       }
     });
-    return { cards: cand, hrefs: href };
+    const label = (document.body.innerText.match(/(\d{4})년\s*(\d{1,2})월/) || [])[0] || '';
+    return { cards: cand, hrefs: href, monthOf, label };
   });
 }
 
