@@ -1553,7 +1553,8 @@ function fmtDuration(ms) {
 // 자동화 종류별 "간단한 대표 데이터" 한 줄
 function historyStatLine(id, s) {
   if (!s) return '';
-  if (id === 'timeinout') return `초과 ${s.otText || '-'}`;
+  // 평일 초과근무(52h 한도 대상). otText는 규칙 정리 전에 저장된 옛 기록용 폴백.
+  if (id === 'timeinout') return `평일 초과 ${s.wdOtText || s.otText || '-'}`;
   if (id === 'correction') return `누락 ${s.count ?? 0}건 · 신청필요 ${s.pending ?? 0}건`;
   if (id === 'correction-submit') return `상신 완료 ${s.okCount ?? 0} · 실패 ${s.failCount ?? 0}`;
   if (id === 'yagun') return `${s.count ?? 0}건 · 상신대상 ${s.withProof ?? 0}건`;

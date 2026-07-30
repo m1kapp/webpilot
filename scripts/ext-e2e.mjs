@@ -291,6 +291,30 @@ checks.push(['사이트 컨텍스트 정렬', ctxOk]);
 await page.screenshot({ path: '/tmp/ext-context.png' });
 await timeinoutTab.close();
 
+// 자동화 5개 전부 상단바 제목이 제 이름으로 바뀌는지.
+// 제목은 start()에서 실행 전에 세워지므로 수집이 성공할 필요가 없다 —
+// 비즈플레이를 안 띄운 채로도 야근택시·야근식비까지 확인할 수 있다.
+console.log('\n── 자동화별 상단바 제목 ──');
+const titles = [];
+for (const id of ['leave-personal', 'overtime', 'correction', 'yagun', 'yasik']) {
+  await page.goto(`chrome-extension://${extId}/page/index.html`);                         // 직전 실행을 끊고 홈에서 다시 시작
+  await page.waitForSelector(`.auto[data-id="${id}"]`);
+  const label = await page.$eval(`.auto[data-id="${id}"] .lb`, (e) => e.textContent.trim());
+  await page.click(`.auto[data-id="${id}"]`);
+  await page.waitForFunction(() => !document.getElementById('view-run').hidden, { timeout: 8000 }).catch(() => {});
+  const shown = await page.$eval('#brand-name', (e) => e.textContent.trim());
+  const oneLine = await page.$eval('#topbar', (bar) => {
+    const kids = [...bar.children].filter((el) => el.offsetParent !== null);
+    const cs = getComputedStyle(bar);
+    return bar.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+      <= Math.max(...kids.map((el) => el.getBoundingClientRect().height)) + 2;
+  });
+  titles.push({ id, label, shown, ok: shown === label && oneLine });
+  console.log(`  ${shown === label && oneLine ? '✓' : '✗'} ${id} → "${shown}"${oneLine ? '' : ' (줄바꿈!)'}`);
+}
+checks.push(['자동화 5개 전부 제목·한 줄', titles.every((t) => t.ok)]);
+await page.goto(`chrome-extension://${extId}/page/index.html`);
+
 console.log('\n── 검증 ──');
 for (const [label, pass] of checks) console.log(`${pass ? '✓' : '✗'} ${label}`);
 
