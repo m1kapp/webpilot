@@ -55,7 +55,37 @@ console.log('\n── 5. 8시간 환산 ──');
 check('총 근로 ÷ 8h = 며칠치', Math.abs(s.fullDays - s.totalAllMin / 480) < 0.05, `${s.fullDays}일`);
 console.log(`  ${s.totalAllText} = 8시간 기준 ${s.fullDays}일치`);
 
-console.log('\n── 6. 지난 달은 달 전체로 나눈다 ──');
+console.log('\n── 6. 평균 출퇴근 시각 ──');
+// 평일 1일(09~20) · 2일(09~21) · 8일 정정(09~22). 휴일 4·5일은 빠져야 한다.
+// 평균 출근 = 09:00, 평균 퇴근 = (20+21+22)/3 = 21:00
+check('평균 출근 09:00', s.avgInText === '09:00', s.avgInText);
+check('평균 퇴근 21:00', s.avgOutText === '21:00', s.avgOutText);
+check('정정일이 평균에 포함됨(3일 기준)', s.avgOutDays === 3, `${s.avgOutDays}일`);
+check('평균 체류 = 12시간', s.avgStayMin === 720, `${s.avgStayMin}분`);
+console.log(`  ${s.avgInText} → ${s.avgOutText} · 체류 ${s.avgStayText} (평일 ${s.avgOutDays}일)`);
+
+// 휴일근무만 잔뜩 있어도 평일 평균은 흔들리지 않아야 한다.
+const holNoise = buildDays({ 1: W(9, 18), 4: W(6, 23), 5: W(6, 23), 11: W(6, 23) }, '2026-07');
+check('휴일근무는 평균에 안 섞임', holNoise.summary.avgInText === '09:00', holNoise.summary.avgInText);
+
+// 자정을 넘긴 퇴근은 '익일 HH:MM'으로. 22시·익일 02시 → 평균 익일 00:00
+const midnight = buildDays({ 1: W(9, 22), 2: W(9, 26) }, '2026-07');
+check('자정 넘긴 퇴근 평균 = 익일 00:00', midnight.summary.avgOutText === '익일 00:00', midnight.summary.avgOutText);
+
+// 아직 퇴근 안 찍은 날은 퇴근 평균에서 빠지되 출근 평균에는 들어간다.
+const kst = new Date(Date.now() + 9 * 3600 * 1000);
+const today = kst.getUTCDate();
+const thisMonth = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
+const ongoing = buildDays({ [today]: { inH: 8, outH: null, recogMin: 0, policy: '', inStat: '출근', outStat: '', nonWork: '' } }, thisMonth);
+const od = ongoing.days.find((x) => x.day === today);
+if (od && od.projected) {
+  check('진행중인 날은 퇴근 평균에서 제외', ongoing.summary.avgOutDays === 0, `${ongoing.summary.avgOutDays}일`);
+  check('진행중인 날도 출근 평균에는 포함', ongoing.summary.avgInDays === 1, `${ongoing.summary.avgInDays}일`);
+} else {
+  console.log('  (오늘이 휴일이라 진행중 검사는 건너뜀)');
+}
+
+console.log('\n── 7. 지난 달은 달 전체로 나눈다 ──');
 const past = buildDays({ 1: W(9, 18) }, '2026-03');   // 3월 31일
 check('지난 달 분모 = 달 일수', past.summary.spanDays === 31, `${past.summary.spanDays}일`);
 

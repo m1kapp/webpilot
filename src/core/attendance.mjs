@@ -141,11 +141,19 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
 //   · 주 평균 근로·총 근로       — 정정 포함(실제 일한 시간이므로), 누락·의심만 제외
 export function summarizeDays(days, { throughDay = 0 } = {}) {
   let totalMin = 0, totalAllMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0, projOt = 0;
+  let inSum = 0, inCnt = 0, outSum = 0, outCnt = 0;
   const missingDays = [], correctedDays = [], suspectDays = [];
   for (const x of days) {
     if (x.suspect) suspectDays.push(x.day);
     if (x.missing) { missingDays.push(x.day); continue; }   // 펀치를 못 믿는 날은 어느 쪽에도 안 넣는다
     totalAllMin += x.workMin;                               // 정정 포함 — "실제로 일한 시간"
+
+    // 평균 출퇴근 시각 — 평일만. 휴일근무는 불규칙해서 섞으면 평균이 왜곡된다.
+    // 정정일은 넣는다(실제로 그 시각에 있었으므로). 퇴근은 아직 안 찍은 날을 뺀다 —
+    // 진행중인 날의 '지금 시각'은 퇴근 시각이 아니다.
+    if (!x.holiday && x.inH != null) { inSum += x.inH; inCnt++; }
+    if (!x.holiday && x.outH != null && !x.projected) { outSum += x.outH; outCnt++; }
+
     if (x.corrected) { correctedDays.push(x.day); continue; }
     totalMin += x.workMin;
     wdOtSum += x.otMin;
@@ -169,6 +177,15 @@ export function summarizeDays(days, { throughDay = 0 } = {}) {
 
     // 휴일근무 — 별도 집계. 한도와 무관.
     holMin: holSum, holText: fmt(holSum),
+
+    // 평균 출퇴근 시각 (평일·정정 포함). 자정을 넘긴 퇴근은 hhmm이 '익일 HH:MM'으로 낸다.
+    avgInH: inCnt ? +(inSum / inCnt).toFixed(4) : null,
+    avgOutH: outCnt ? +(outSum / outCnt).toFixed(4) : null,
+    avgInText: inCnt ? hhmm(inSum / inCnt) : '',
+    avgOutText: outCnt ? hhmm(outSum / outCnt) : '',
+    avgStayMin: inCnt && outCnt ? Math.round((outSum / outCnt - inSum / inCnt) * 60) : 0,
+    avgStayText: inCnt && outCnt ? fmt(Math.round((outSum / outCnt - inSum / inCnt) * 60)) : '',
+    avgInDays: inCnt, avgOutDays: outCnt,
 
     // 실제로 일한 시간 (정정 포함)
     totalAllMin, totalAllText: fmt(totalAllMin),

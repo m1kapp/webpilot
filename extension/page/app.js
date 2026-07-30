@@ -352,6 +352,13 @@ function renderOvertime(d) {
           <div class="l">52h 한도와 별도 집계</div></div>
         <div class="kpi"><div class="l">주 평균 근로</div><div class="v">${esc(s.weeklyAvgText || '-')}</div>
           <div class="l">${s.spanDays || 0}일 ÷ ${s.weeks || 0}주 · 정정 포함</div></div>
+        <div class="kpi wide"><div class="l">평균 출퇴근 <span style="color:var(--faint)">평일 ${s.avgOutDays || 0}일 기준</span></div>
+          <div class="avg-inout">
+            <span><b>${esc(s.avgInText || '-')}</b><i>출근</i></span>
+            <em>→</em>
+            <span><b>${esc(s.avgOutText || '-')}</b><i>퇴근</i></span>
+            ${s.avgStayText ? `<span class="stay"><b>${esc(s.avgStayText)}</b><i>체류</i></span>` : ''}
+          </div></div>
         <div class="kpi wide"><div class="l">총 근로 <span style="color:var(--faint)">(정정 포함)</span></div>
           <div class="v" style="font-size:20px">${esc(s.totalAllText || '-')}
             <span style="font-size:13px;font-weight:600;color:var(--muted)">= 8시간 기준 ${s.fullDays ?? '-'}일치</span></div>
