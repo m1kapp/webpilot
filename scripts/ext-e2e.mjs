@@ -240,14 +240,27 @@ await page.setViewportSize({ width: 400, height: 900 });
 await page.waitForTimeout(300);
 const panel = await page.evaluate(() => {
   const grid = getComputedStyle(document.querySelector('.yc-grid')).gridTemplateColumns.split(' ').length;
-  const expand = getComputedStyle(document.getElementById('expand')).display; // 결과 뷰에서 노출
-  return { columns: grid, expandVisible: expand !== 'none', bodyOverflows: document.body.scrollWidth > window.innerWidth + 1 };
+  // 상단바가 한 줄인지 — 줄바꿈이 나면 "‹ 목록"과 제목이 두 동강 난다.
+  // 높이로 재면 폰트·패딩이 바뀌어도 안 깨진다: 자식 중 가장 높은 것보다 크게 늘어났으면 줄바꿈.
+  const bar = document.getElementById('topbar');
+  const kids = [...bar.children].filter((el) => el.offsetParent !== null);
+  const tallest = Math.max(...kids.map((el) => el.getBoundingClientRect().height));
+  const barH = bar.getBoundingClientRect().height;
+  const pad = parseFloat(getComputedStyle(bar).paddingTop) + parseFloat(getComputedStyle(bar).paddingBottom);
+  return {
+    columns: grid,
+    topbarSingleLine: barH - pad <= tallest + 2,
+    topbarTitle: document.getElementById('brand-name').textContent,
+    bodyOverflows: document.body.scrollWidth > window.innerWidth + 1,
+  };
 });
 console.log('\n── 사이드 패널 폭 400px ──');
 console.log('달력 열 수     :', panel.columns);
-console.log('크게보기 버튼  :', panel.expandVisible ? '표시' : '숨김');
+console.log('상단바         :', panel.topbarSingleLine ? '한 줄' : '줄바꿈(문제)', `· 제목 "${panel.topbarTitle}"`);
 console.log('가로 스크롤    :', panel.bodyOverflows ? '발생(문제)' : '없음');
-checks.push(['패널에서 1열', panel.columns === 1], ['패널에서 크게보기 노출', panel.expandVisible],
+checks.push(['패널에서 1열', panel.columns === 1],
+  ['상단바 한 줄 유지', panel.topbarSingleLine],
+  ['상단바 제목이 자동화 이름', panel.topbarTitle === '내 연차 현황'],
   ['패널 가로 스크롤 없음', !panel.bodyOverflows],
   ['자동화 목록 5개', homeItems.length === 5],
   ['활성 자동화 5개(전부)', homeItems.filter((i) => i.ready).length === 5],

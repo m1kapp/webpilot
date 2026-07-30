@@ -7,8 +7,6 @@ import { getYagunTaxi, getYasik } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
 import { openLoginAndWait } from './lib/tab.js';
 
-const PAGE = 'page/index.html';
-
 // 자동화 레지스트리 — 메시지 타입 → 실행 함수. 새 자동화는 여기 한 줄.
 const RUNNERS = {
   'leave-personal': (msg, progress) => getLeaveStatus(msg.year, progress),
@@ -23,16 +21,6 @@ const RUNNERS = {
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  // 패널의 [새 탭에서 크게 보기] — 12개월 달력을 여러 열로 펼쳐 본다
-  if (msg?.type === 'open-tab') {
-    const url = chrome.runtime.getURL(PAGE);
-    chrome.tabs.query({ url }).then(([existing]) => {
-      if (existing) chrome.tabs.update(existing.id, { active: true });
-      else chrome.tabs.create({ url });
-    });
-    return; // 응답 없음
-  }
-
   // 막혀서 뜬 "로그인하기" — 로그인 페이지를 열고 완료될 때까지 기다렸다가 알린다.
   // 패널은 이 응답을 받으면 곧바로 자동화를 재실행한다.
   if (msg?.type === 'login') {

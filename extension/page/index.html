@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <title>Webwing</title>
 <style>
-  :root { --ink:#1e2536; --muted:#8a93a6; --line:#eaedf6; --blue:#3b6fe0; --red:#e0484d; --ok:#12a150;
+  :root { --ink:#1e2536; --muted:#8a93a6; --faint:#aeb6c6; --line:#eaedf6; --blue:#3b6fe0; --red:#e0484d; --ok:#12a150;
     --bg:#f4f6fb; --card:#fff; --soft:#f0f2f8; }
   * { box-sizing:border-box; }
   html, body { height:100%; }
@@ -17,18 +17,24 @@
 
   /* 앱 셸 — 상단바 고정, 본문 스크롤 */
   .app { display:flex; flex-direction:column; height:100%; }
-  .topbar { display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--card);
-    border-bottom:1px solid var(--line); flex:0 0 auto; }
-  .topbar .brand { font-size:15px; font-weight:800; letter-spacing:-.3px; }
-  .topbar .brand .wing { font-size:16px; }
-  .topbar .brand span { font-weight:600; color:var(--muted); font-size:12px; margin-left:2px; }
-  .topbar .back { display:none; align-items:center; gap:5px; margin-right:2px; color:#5a6172;
-    font-size:13px; font-weight:600; padding:5px 9px 5px 6px; border-radius:8px; }
+  /* 상단바는 한 줄로 고정한다. 패널이 좁아 줄바꿈이 나면 제목이 두 동강 난다.
+     브라우저 패널 헤더에 이미 "Webwing"이 떠 있으므로 안에서는 화면 이름이 주인공이다. */
+  .topbar { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; padding:12px 16px;
+    background:var(--card); border-bottom:1px solid var(--line); flex:0 0 auto; }
+  .topbar .brand { display:flex; align-items:baseline; gap:6px; min-width:0; }
+  .topbar .brand .wing { font-size:15px; flex:none; }
+  .topbar .brand b { font-size:15px; font-weight:800; letter-spacing:-.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 자동화 화면에서는 브랜드를 작게 죽이고 화면 이름을 키운다 */
+  .topbar.sub .brand .wing { font-size:13px; opacity:.55; }
+  .topbar.sub .brand b { font-size:15px; }
+  .topbar .back { display:none; flex:none; align-items:center; justify-content:center;
+    width:28px; height:28px; margin-right:-2px; color:#5a6172;
+    font-size:19px; line-height:1; font-weight:700; border-radius:8px; }
   .topbar .back:hover { background:var(--soft); color:var(--ink); }
-  .topbar .spacer { flex:1; }
-  .topbar .expand { display:none; color:#5a6172; border:1px solid #d9dcec; border-radius:8px;
-    padding:6px 10px; font-size:12px; font-weight:600; }
-  .topbar .expand:hover { border-color:var(--blue); color:var(--blue); }
+  .topbar .spacer { flex:1 1 auto; min-width:4px; }
+  .topbar input[type=month] { flex:none; font:inherit; font-size:12.5px; padding:5px 7px;
+    border:1px solid #d9dcec; border-radius:9px; background:#fff; color:var(--ink); }
   .body { flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:16px; }
 
   /* ── 홈: 자동화 목록 ── */
@@ -216,9 +222,10 @@
 
   /* 좁은 폭(사이드 패널·모바일 크기) — 터치 타깃 키우고 넘침 방지 */
   @media (max-width: 460px) {
-    .topbar { flex-wrap:wrap; gap:8px; padding:10px 12px; }
-    .topbar .brand { font-size:14px; }
-    .topbar .expand { padding:7px 10px; } /* 터치 여백 */
+    /* 줄바꿈은 절대 허용하지 않는다 — 여기서 wrap을 켜면 제목이 두 줄로 쪼개진다.
+       모자라면 제목을 말줄임으로 줄인다. */
+    .topbar { gap:8px; padding:10px 12px; }
+    .topbar .brand b { font-size:14px; }
     .body { padding:13px; }
     .card { padding:15px 14px; }
     .kpi .v { font-size:21px; }         /* 2열이므로 살짝 축소 */
@@ -243,12 +250,11 @@
 </head>
 <body>
 <div class="app">
-  <div class="topbar">
-    <button class="back" id="back">‹ 목록</button>
-    <div class="brand"><span class="wing">🪽</span> Webwing<span id="brand-sub"></span></div>
+  <div class="topbar" id="topbar">
+    <button class="back" id="back" title="목록으로" aria-label="목록으로">‹</button>
+    <div class="brand"><span class="wing">🪽</span><b id="brand-name">Webwing</b></div>
     <div class="spacer"></div>
-    <button class="expand" id="expand">새 탭에서 크게 ↗</button>
-    <input type="month" id="month" hidden style="font:inherit;padding:6px 8px;border:1px solid #d9dcec;border-radius:9px;background:#fff;color:var(--ink)" />
+    <input type="month" id="month" hidden />
     <select id="year" hidden></select>
   </div>
 

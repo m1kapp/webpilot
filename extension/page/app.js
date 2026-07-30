@@ -117,10 +117,12 @@ function show(view) {
   if (view !== 'result') { clockChart?.destroy(); clockChart = null; }
   for (const v of ['home', 'run', 'result']) $(`view-${v}`).hidden = v !== view;
   $('back').style.display = view === 'home' ? 'none' : 'inline-flex';
-  $('expand').style.display = view === 'result' ? 'inline-flex' : 'none';
   $('year').hidden = !(view === 'result' && current?.hasYear);
   $('month').hidden = !(view === 'result' && current?.hasMonth);
-  $('brand-sub').textContent = view === 'home' ? '' : ` · ${current?.label || ''}`;
+  // 자동화 안에서는 그 화면 이름이 제목이다. 브랜드는 왼쪽 아이콘으로만 남긴다 —
+  // 브라우저 패널 헤더에 이미 "Webwing"이 떠 있어서 두 번 쓸 자리가 없다.
+  $('topbar').classList.toggle('sub', view !== 'home');
+  $('brand-name').textContent = view === 'home' ? 'Webwing' : (current?.label || 'Webwing');
   // 패널 상단 브라우저 바 타이틀도 현재 화면 반영
   document.title = view === 'home' ? 'Webwing' : `Webwing · ${current?.label || ''}`;
 }
@@ -288,7 +290,6 @@ $('month').value = `${thisYear}-${String(kstNow().getUTCMonth() + 1).padStart(2,
 $('back').addEventListener('click', goHome);
 $('run-home').addEventListener('click', goHome);
 // run-retry의 동작은 failCurrentStep에서 상황에 맞게 onclick으로 지정한다(재시도 / 로그인하기)
-$('expand').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-tab' }));
 // 결과 화면에서 연도·월 바꾸면 즉시 재실행
 $('year').addEventListener('change', () => current && start(current));
 $('month').addEventListener('change', () => current && start(current));
