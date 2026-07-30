@@ -9,7 +9,7 @@ export const BREAK_MIN = 90;           // 점심 60 + 저녁 30
 export const SUSPECT_MIN = 16 * 60;    // 16시간 초과 = 미체크아웃 의심
 
 // 공용 계산부: 정규화 byDay { inH, outH(익일이면 >24), recogMin, policy, inStat, outStat, nonWork } → days + summary
-export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {}) {
+export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {}, opts = {}) {
   const { y, m, last } = monthRange(month);
   const days = [];
   let totalMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0;
@@ -100,7 +100,9 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
   const gap = totalMin - recogTotal;              // 회사가 안 쳐준 시간(보정 기준)
   return {
     month, days,
-    summary: {
+    summary: summarizeDays(days, opts),
+    // 아무것도 안 뺀 날것 롤업. 화면에는 안 쓰고 대조·디버깅용으로만 남긴다.
+    summaryRaw: {
       totalMin, totalText: fmt(totalMin),
       otSum, otText: fmt(otSum), otHours: +(otSum / 60).toFixed(1),
       wdOtMin: wdOtSum, wdOtText: fmt(wdOtSum),
@@ -109,10 +111,44 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
       gapMin: gap, gapText: fmt(gap),
       rawTotalMin: adjTotal, rawTotalText: fmt(adjTotal),
       rawOtSum, rawOtText: fmt(rawOtSum), rawOtHours: +(rawOtSum / 60).toFixed(1),
-      cappedDays: days.filter(d => d.capped).length,
-      suspectDays: days.filter(d => d.suspect).length,
-      limitHours: 52, over52: otSum > MONTH_LIMIT,
     },
+  };
+}
+
+// 화면에 쓰는 합계. buildDays의 날것 롤업과 달리 두 가지를 뺀다.
+//   · 기록 누락·미체크아웃 의심일 — 펀치를 못 믿으니 초과로 세면 안 된다
+//   · 정정 신청한 날 — 기본은 제외(정정 결과로 따로 정산되므로 중복이 된다)
+// 이 규칙이 데스크톱 화면에만 있어서 확장이 초과근무를 과다 집계했다.
+// 합계는 항상 "차트에 색으로 보이는 영역의 합"과 일치해야 한다.
+export function summarizeDays(days, { excludeCorrected = true } = {}) {
+  let totalMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0, projOt = 0;
+  const missingDays = [], correctedDays = [], suspectDays = [];
+  for (const x of days) {
+    if (x.suspect) suspectDays.push(x.day);
+    if (x.missing) { missingDays.push(x.day); continue; }
+    if (x.corrected) {
+      correctedDays.push(x.day);
+      if (excludeCorrected) continue;
+    }
+    totalMin += x.workMin;
+    wdOtSum += x.otMin;
+    holSum += x.holMin;
+    recogTotal += x.recogWorkMin;
+    if (x.projected) projOt += x.otMin + x.holMin;   // 아직 퇴근 전 — 확정분과 구분
+  }
+  const otSum = wdOtSum + holSum;
+  return {
+    totalMin, totalText: fmt(totalMin),
+    otSum, otText: fmt(otSum), otHours: +(otSum / 60).toFixed(1),
+    wdOtMin: wdOtSum, wdOtText: fmt(wdOtSum),
+    holMin: holSum, holText: fmt(holSum),
+    recogMin: recogTotal, recogText: fmt(recogTotal),
+    gapMin: totalMin - recogTotal, gapText: fmt(totalMin - recogTotal),
+    projOtMin: projOt, confirmedOtMin: otSum - projOt,
+    excludeCorrected,
+    missingDays, correctedDays, suspectDays,
+    cappedDays: days.filter((d) => d.capped).length,
+    limitHours: 52, over52: otSum > MONTH_LIMIT,
   };
 }
 

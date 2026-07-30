@@ -1,6 +1,7 @@
 // Webwing 사이드 패널 — 홈(자동화 목록) → 실행 중(단계 로그) → 결과.
 // 실행 중에는 목록 위를 스크림이 덮고 백그라운드 수집이 도는 동안 단계가 올라간다.
 import { mountClockChart, legendHTML } from './chart.js';
+import { summarizeDays } from '../core/attendance.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -329,10 +330,14 @@ function renderLeave(d) {
   renderYearCalendar(String(d.year), d.leaveHistory || [], d.holidays || {});
 }
 
-// 초과근무 분석 결과 — 합계 KPI + 일자별 표. 계산은 코어 buildDays, 여기선 표시만.
-function renderOvertime(d) {
-  const s = d.summary || {};
+// 초과근무 분석 결과 — 합계 KPI + 차트 + 일자별 표.
+// 합계는 코어 summarizeDays로 다시 뽑는다(누락·의심일 제외, 정정일은 토글).
+// 웹 대시보드와 같은 규칙이어야 같은 숫자가 나온다.
+function renderOvertime(d, excludeCorrected = true) {
+  const days = d.days || [];
+  const s = days.length ? summarizeDays(days, { excludeCorrected }) : (d.summary || {});
   const over = s.over52;
+  const dayList = (arr) => (arr || []).map((n) => `${n}일`).join(', ');
   $('view-result').innerHTML = `
     <div class="card">
       <h2>초과근무 요약<span class="side">${esc(d.month)}</span></h2>
@@ -346,7 +351,16 @@ function renderOvertime(d) {
         <div class="kpi"><div class="l">총 근로</div><div class="v" style="font-size:19px">${esc(s.totalText || '-')}</div>
           <div class="l">회사 인정 ${esc(s.recogText || '-')}</div></div>
       </div>
-      ${s.suspectDays ? `<p style="color:#c07d13;font-size:12.5px;margin:12px 0 0;font-weight:600">⚠ 미체크아웃 의심 ${s.suspectDays}일 — 합계에서 제외(회사 인정값 사용)</p>` : ''}
+      ${(s.correctedDays || []).length ? `
+        <label class="ot-toggle">
+          <input type="checkbox" id="ot-excl" ${excludeCorrected ? 'checked' : ''}>
+          정정한 날은 초과근무 합계에서 제외
+        </label>` : ''}
+      <p class="ot-excl-note">${[
+        (s.correctedDays || []).length ? `정정 ${s.correctedDays.length}일 [${esc(dayList(s.correctedDays))}] → ${excludeCorrected ? '합계 제외' : '합계 포함'}` : '',
+        (s.missingDays || []).length ? `기록 누락 ${s.missingDays.length}일 [${esc(dayList(s.missingDays))}] → 합계 제외` : '',
+        (s.suspectDays || []).length ? `미체크아웃 의심 ${s.suspectDays.length}일 [${esc(dayList(s.suspectDays))}] → 합계 제외` : '',
+      ].filter(Boolean).join(' · ') || '제외된 날 없음'}</p>
     </div>
     <div class="card">
       <h2>출퇴근 시각 분포</h2>
@@ -364,11 +378,13 @@ function renderOvertime(d) {
       <p class="foot">찐 출퇴근(펀치) 기준 · 초과 없는 평범한 날은 생략.</p>
     </div>`;
 
-  const days = d.days || [];
+  // 토글은 다시 가져오지 않고 이미 받은 날짜들로 합계만 다시 뽑는다.
+  $('ot-excl')?.addEventListener('change', (e) => renderOvertime(d, e.target.checked));
+
   if (days.length) {
-    $('clock-legend').innerHTML = legendHTML(days);
+    $('clock-legend').innerHTML = legendHTML(days, { excludeCorrected });
     clockChart?.destroy();
-    clockChart = mountClockChart($('clock'), $('clock-tip'), days);
+    clockChart = mountClockChart($('clock'), $('clock-tip'), days, { excludeCorrected });
   }
 
   const rows = (d.days || []).filter((x) => x.otMin > 0 || x.holMin > 0 || x.missing || x.suspect);
