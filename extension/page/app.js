@@ -333,33 +333,34 @@ function renderLeave(d) {
 // 초과근무 분석 결과 — 합계 KPI + 차트 + 일자별 표.
 // 합계는 코어 summarizeDays로 다시 뽑는다(누락·의심일 제외, 정정일은 토글).
 // 웹 대시보드와 같은 규칙이어야 같은 숫자가 나온다.
-function renderOvertime(d, excludeCorrected = true) {
+function renderOvertime(d) {
   const days = d.days || [];
-  const s = days.length ? summarizeDays(days, { excludeCorrected }) : (d.summary || {});
-  const over = s.over52;
+  const s = days.length ? summarizeDays(days, { throughDay: d.summary?.spanDays || 0 }) : (d.summary || {});
+  const over = s.overLimit;
   const dayList = (arr) => (arr || []).map((n) => `${n}일`).join(', ');
   $('view-result').innerHTML = `
     <div class="card">
       <h2>초과근무 요약<span class="side">${esc(d.month)}</span></h2>
       <div class="kpis">
-        <div class="kpi wide"><div class="l">초과근무 합계 · 한도 52h</div>
-          <div class="v" style="color:${over ? 'var(--red)' : 'var(--ink)'}">${esc(s.otText || '-')}</div>
+        <div class="kpi wide"><div class="l">평일 초과근무 · 한도 52h</div>
+          <div class="v" style="color:${over ? 'var(--red)' : 'var(--ink)'}">${esc(s.wdOtText || '-')}</div>
           ${gaugeHTML(s)}
-          <div class="l">주 52시간 ${over ? '초과 ⚠' : '이내'}${payNote(s)}</div></div>
-        <div class="kpi"><div class="l">평일 초과</div><div class="v">${esc(s.wdOtText || '-')}</div></div>
-        <div class="kpi"><div class="l">휴일 근무</div><div class="v">${esc(s.holText || '-')}</div></div>
-        <div class="kpi"><div class="l">총 근로</div><div class="v" style="font-size:19px">${esc(s.totalText || '-')}</div>
+          <div class="l">${over
+            ? `한도 ${fmtHours(s.limitOverMin)} 초과 ⚠`
+            : `한도까지 ${fmtHours(s.limitRemainMin)} 남음`} · 정정·누락일 제외</div></div>
+        <div class="kpi"><div class="l">휴일 근무</div><div class="v">${esc(s.holText || '-')}</div>
+          <div class="l">52h 한도와 별도 집계</div></div>
+        <div class="kpi"><div class="l">주 평균 근로</div><div class="v">${esc(s.weeklyAvgText || '-')}</div>
+          <div class="l">${s.spanDays || 0}일 ÷ ${s.weeks || 0}주 · 정정 포함</div></div>
+        <div class="kpi wide"><div class="l">총 근로 <span style="color:var(--faint)">(정정 포함)</span></div>
+          <div class="v" style="font-size:20px">${esc(s.totalAllText || '-')}
+            <span style="font-size:13px;font-weight:600;color:var(--muted)">= 8시간 기준 ${s.fullDays ?? '-'}일치</span></div>
           <div class="l">회사 인정 ${esc(s.recogText || '-')}</div></div>
       </div>
-      ${(s.correctedDays || []).length ? `
-        <label class="ot-toggle">
-          <input type="checkbox" id="ot-excl" ${excludeCorrected ? 'checked' : ''}>
-          정정한 날은 초과근무 합계에서 제외
-        </label>` : ''}
       <p class="ot-excl-note">${[
-        (s.correctedDays || []).length ? `정정 ${s.correctedDays.length}일 [${esc(dayList(s.correctedDays))}] → ${excludeCorrected ? '합계 제외' : '합계 포함'}` : '',
-        (s.missingDays || []).length ? `기록 누락 ${s.missingDays.length}일 [${esc(dayList(s.missingDays))}] → 합계 제외` : '',
-        (s.suspectDays || []).length ? `미체크아웃 의심 ${s.suspectDays.length}일 [${esc(dayList(s.suspectDays))}] → 합계 제외` : '',
+        (s.correctedDays || []).length ? `정정 ${s.correctedDays.length}일 [${esc(dayList(s.correctedDays))}] → 초과근무에서 제외 · 총 근로엔 포함` : '',
+        (s.missingDays || []).length ? `기록 누락 ${s.missingDays.length}일 [${esc(dayList(s.missingDays))}] → 전부 제외` : '',
+        (s.suspectDays || []).length ? `미체크아웃 의심 ${s.suspectDays.length}일 [${esc(dayList(s.suspectDays))}] → 전부 제외` : '',
       ].filter(Boolean).join(' · ') || '제외된 날 없음'}</p>
     </div>
     <div class="card">
@@ -378,13 +379,10 @@ function renderOvertime(d, excludeCorrected = true) {
       <p class="foot">찐 출퇴근(펀치) 기준 · 초과 없는 평범한 날은 생략.</p>
     </div>`;
 
-  // 토글은 다시 가져오지 않고 이미 받은 날짜들로 합계만 다시 뽑는다.
-  $('ot-excl')?.addEventListener('change', (e) => renderOvertime(d, e.target.checked));
-
   if (days.length) {
-    $('clock-legend').innerHTML = legendHTML(days, { excludeCorrected });
+    $('clock-legend').innerHTML = legendHTML(days);
     clockChart?.destroy();
-    clockChart = mountClockChart($('clock'), $('clock-tip'), days, { excludeCorrected });
+    clockChart = mountClockChart($('clock'), $('clock-tip'), days);
   }
 
   const rows = (d.days || []).filter((x) => x.otMin > 0 || x.holMin > 0 || x.missing || x.suspect);
@@ -404,22 +402,18 @@ function renderOvertime(d, excludeCorrected = true) {
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">초과근무·누락이 없어요 🎉</div>`;
 }
 
-// 52h 한도 게이지. 한도(52h)를 트랙 전체로 보고, 30h 지점에 수당 발생선을 세운다.
-// 한도를 넘긴 달은 트랙을 넘긴 만큼 빨갛게 채워 "얼마나 넘었나"가 바로 보이게 한다.
+// 52h 한도 게이지. 한도의 대상은 '평일 초과근무'다 — 휴일근무는 여기 안 들어간다.
+// 30h 지점에 수당 발생선을 세우고, 넘긴 달은 트랙을 꽉 채워 초과량을 옆에 적는다.
 const LIMIT_H = 52, PAY_H = 30;
+const fmtHours = (min) => `${(Math.max(0, min || 0) / 60).toFixed(1)}h`;
 function gaugeHTML(s) {
-  const h = (s.otMin ?? s.otSum ?? 0) / 60 || s.otHours || 0;
+  const h = (s.wdOtMin || 0) / 60;
   const pct = Math.max(0, Math.min(100, (h / LIMIT_H) * 100));
   const over = h > LIMIT_H;
-  return `<div class="gauge" role="img" aria-label="초과근무 ${h.toFixed(1)}시간 / 한도 ${LIMIT_H}시간">
+  return `<div class="gauge" role="img" aria-label="평일 초과근무 ${h.toFixed(1)}시간 / 한도 ${LIMIT_H}시간">
     <div class="gauge-fill" style="width:${pct}%;background:${over ? 'var(--red)' : h >= PAY_H ? '#e08b1a' : 'var(--blue)'}"></div>
     <div class="gauge-mark" style="left:${(PAY_H / LIMIT_H) * 100}%" title="${PAY_H}시간부터 수당 발생"></div>
   </div>`;
-}
-function payNote(s) {
-  const h = (s.otMin ?? s.otSum ?? 0) / 60 || s.otHours || 0;
-  if (h > LIMIT_H) return ` · 한도 ${(h - LIMIT_H).toFixed(1)}h 초과`;
-  return ` · 남은 ${(LIMIT_H - h).toFixed(1)}h`;
 }
 
 const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;

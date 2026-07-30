@@ -197,7 +197,10 @@ const otRows = await page.$$eval('#ot-rows .ot-row', (els) => els.map((e) => e.i
 console.log('\n── 초과근무 결과 ──');
 console.log('요약:', otSummary);
 for (const r of otRows) console.log('  ', r);
-const otHasData = /초과근무 합계/.test(otSummary) && otRows.length >= 1 && !/오류|없어요 🎉$/.test(otRows[0] || '');
+// 52h 한도는 평일 초과근무에만 걸리고 휴일근무는 별도 집계다 — 요약이 그 구분을 보여줘야 한다.
+const otHasData = /평일 초과근무/.test(otSummary) && /휴일 근무/.test(otSummary)
+  && /한도와 별도 집계/.test(otSummary) && /주 평균 근로/.test(otSummary)
+  && otRows.length >= 1 && !/오류|없어요 🎉$/.test(otRows[0] || '');
 // 6/2(초과), 6/13(휴일) 이 표에 잡혀야 함
 const otCatchesOvertime = otRows.some((r) => /\+\d+(:\d\d|분)/.test(r)); // 배지 예: +2:45 / +30분
 

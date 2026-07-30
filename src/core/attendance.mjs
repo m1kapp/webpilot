@@ -28,6 +28,8 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
   const nowKST = kstNow();
   const todayStr = nowKST.toISOString().slice(0, 10);
   const nowH = nowKST.getUTCHours() + nowKST.getUTCMinutes() / 60;
+  const ymNow = nowKST.getUTCFullYear() * 100 + (nowKST.getUTCMonth() + 1);
+  const ymThis = y * 100 + m;
   for (let day = 1; day <= last; day++) {
     const dow = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
     const weekend = dow === 0 || dow === 6;
@@ -112,7 +114,8 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
   const gap = totalMin - recogTotal;              // 회사가 안 쳐준 시간(보정 기준)
   return {
     month, days,
-    summary: summarizeDays(days, opts),
+    // 이번 달이면 오늘까지, 지난 달이면 달 전체를 주 평균의 분모로 삼는다.
+    summary: summarizeDays(days, { throughDay: ymThis === ymNow ? nowKST.getUTCDate() : last, ...opts }),
     // 아무것도 안 뺀 날것 롤업. 화면에는 안 쓰고 대조·디버깅용으로만 남긴다.
     summaryRaw: {
       totalMin, totalText: fmt(totalMin),
@@ -132,35 +135,54 @@ export function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {
 //   · 정정 신청한 날 — 기본은 제외(정정 결과로 따로 정산되므로 중복이 된다)
 // 이 규칙이 데스크톱 화면에만 있어서 확장이 초과근무를 과다 집계했다.
 // 합계는 항상 "차트에 색으로 보이는 영역의 합"과 일치해야 한다.
-export function summarizeDays(days, { excludeCorrected = true } = {}) {
-  let totalMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0, projOt = 0;
+// 지표마다 정정일 취급이 다르다. 한도 관리용 숫자에서는 빼고, 실제로 얼마나 일했나를
+// 보는 숫자에서는 넣는다. 하나의 토글로 전부 뒤집으면 둘 중 하나는 반드시 틀린다.
+//   · 평일 초과근무(52h 한도 대상) — 정정·누락·의심일 제외
+//   · 주 평균 근로·총 근로       — 정정 포함(실제 일한 시간이므로), 누락·의심만 제외
+export function summarizeDays(days, { throughDay = 0 } = {}) {
+  let totalMin = 0, totalAllMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0, projOt = 0;
   const missingDays = [], correctedDays = [], suspectDays = [];
   for (const x of days) {
     if (x.suspect) suspectDays.push(x.day);
-    if (x.missing) { missingDays.push(x.day); continue; }
-    if (x.corrected) {
-      correctedDays.push(x.day);
-      if (excludeCorrected) continue;
-    }
+    if (x.missing) { missingDays.push(x.day); continue; }   // 펀치를 못 믿는 날은 어느 쪽에도 안 넣는다
+    totalAllMin += x.workMin;                               // 정정 포함 — "실제로 일한 시간"
+    if (x.corrected) { correctedDays.push(x.day); continue; }
     totalMin += x.workMin;
     wdOtSum += x.otMin;
     holSum += x.holMin;
     recogTotal += x.recogWorkMin;
-    if (x.projected) projOt += x.otMin + x.holMin;   // 아직 퇴근 전 — 확정분과 구분
+    if (x.projected) projOt += x.otMin;                     // 아직 퇴근 전 — 확정분과 구분
   }
-  const otSum = wdOtSum + holSum;
+
+  // 주 평균: 지난 달은 달 전체로, 이번 달은 오늘까지로 나눈다.
+  // 월말까지 다 지나지도 않았는데 31일로 나누면 평균이 실제보다 낮게 보인다.
+  const span = throughDay > 0 ? Math.min(throughDay, days.length) : days.length;
+  const weeks = Math.max(span, 1) / 7;
+  const weeklyAvgMin = totalAllMin / weeks;
+
   return {
-    totalMin, totalText: fmt(totalMin),
-    otSum, otText: fmt(otSum), otHours: +(otSum / 60).toFixed(1),
-    wdOtMin: wdOtSum, wdOtText: fmt(wdOtSum),
+    // 52h 한도의 대상 — 평일 초과근무만. 휴일근무는 여기 안 들어간다.
+    wdOtMin: wdOtSum, wdOtText: fmt(wdOtSum), wdOtHours: +(wdOtSum / 60).toFixed(1),
+    limitHours: 52, overLimit: wdOtSum > MONTH_LIMIT,
+    limitRemainMin: Math.max(0, MONTH_LIMIT - wdOtSum), limitOverMin: Math.max(0, wdOtSum - MONTH_LIMIT),
+    projOtMin: projOt, confirmedOtMin: wdOtSum - projOt,
+
+    // 휴일근무 — 별도 집계. 한도와 무관.
     holMin: holSum, holText: fmt(holSum),
+
+    // 실제로 일한 시간 (정정 포함)
+    totalAllMin, totalAllText: fmt(totalAllMin),
+    weeklyAvgMin: Math.round(weeklyAvgMin), weeklyAvgText: fmt(Math.round(weeklyAvgMin)),
+    weeks: +weeks.toFixed(2), spanDays: span,
+    fullDays: +(totalAllMin / DAILY_BASE).toFixed(1),   // 8시간 = 하루로 환산하면 며칠치인가
+
+    // 정정 제외 기준(한도 대상과 같은 날짜 집합)
+    totalMin, totalText: fmt(totalMin),
     recogMin: recogTotal, recogText: fmt(recogTotal),
     gapMin: totalMin - recogTotal, gapText: fmt(totalMin - recogTotal),
-    projOtMin: projOt, confirmedOtMin: otSum - projOt,
-    excludeCorrected,
+
     missingDays, correctedDays, suspectDays,
     cappedDays: days.filter((d) => d.capped).length,
-    limitHours: 52, over52: otSum > MONTH_LIMIT,
   };
 }
 

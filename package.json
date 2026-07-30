@@ -14,7 +14,8 @@
     "ext:shot": "node scripts/ot-shot.mjs",
     "ext:month": "node scripts/ext-month.mjs",
     "ext:parity": "node scripts/summary-parity.mjs",
-    "ext:break": "node scripts/break-rule.mjs"
+    "ext:break": "node scripts/break-rule.mjs",
+    "ext:rules": "node scripts/rules.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
