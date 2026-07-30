@@ -92,6 +92,12 @@ const stuck = await ask('2026-06');
 check('틀린 달 결과 대신 에러', !stuck?.ok, stuck?.ok ? `조용히 통과함: 평일초과 ${stuck.data.summary.wdOtText}` : '');
 check('에러에 목표월 명시', !stuck?.ok && /6월/.test(stuck?.error || ''), stuck?.error);
 check('원인 설명 있음', !stuck?.ok && /7월/.test(stuck?.detail || ''), stuck?.detail?.slice(0, 60));
+// 고치려면 실제 마크업이 필요하다. 에러에 그게 실려 오는지 본다.
+check('월 라벨 요소 정보 포함', /월 라벨:/.test(stuck?.detail || ''), '(없음)');
+check('라벨 좌우에 뭐가 있는지 포함', /라벨 좌우 좌표/.test(stuck?.detail || ''), '(없음)');
+check('주변 클릭 후보 포함', /클릭 후보|prev|next/.test(stuck?.detail || ''), '(없음)');
+console.log('\n── 에러에 실린 진단 ──');
+console.log((stuck?.detail || '').split('\n').map((l) => '  ' + l).join('\n'));
 
 await ctx.close(); srv.close();
 console.log(fails.length ? `\n실패 ${fails.length}건: ${fails.join(', ')}` : '\n전부 통과');

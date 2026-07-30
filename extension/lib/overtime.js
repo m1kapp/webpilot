@@ -1,6 +1,6 @@
 // 초과근무 분석 수집 계층(익스텐션판). src/lib/timeinout.mjs의 getOvertimeEmployee에 대응.
 // 계산(cardsToByDay + buildDays)은 전부 코어. 여기선 타임인아웃에서 "가져오는" 일만 한다.
-import { openTab, evaluate, closeTab, assertLoggedIn } from './tab.js';
+import { openTab, goto, evaluate, closeTab, assertLoggedIn } from './tab.js';
 import { getLeaveByDay } from './timeinout.js';
 import { buildDays, cardsToByDay, parseCardInOut } from '../core/attendance.js';
 
@@ -19,7 +19,10 @@ export async function getOvertime(month, onProgress = () => {}) {
     await navigateToMonth(tabId, ty, tm);
     const { cards, hrefs, monthOf, label } = await scrapeCards(tabId);
     // 화면이 실제로 목표월인지 확인한다. 이걸 안 하면 다른 달 카드가 요청한 달로 둔갑한다.
-    assertMonthMatches(month, ty, tm, label, monthOf);
+    // 실패하면 월 이동 UI가 어떻게 생겼는지 같이 담아 준다 — 그거 없이는 고칠 수가 없다.
+    if (!monthMatches(ty, tm, label, monthOf)) {
+      throw await monthMismatchError(tabId, month, ty, tm, label, monthOf);
+    }
 
     onProgress('경계일(자정 넘김) 보정 중');
     const overrides = await fixSpillover(tabId, cards, hrefs);
@@ -45,6 +48,17 @@ const readMonthLabel = (tabId) =>
   evaluate(tabId, () => (document.body.innerText.match(/(\d{4})년\s*(\d{1,2})월/) || [])[0] || '');
 
 async function navigateToMonth(tabId, ty, tm) {
+  // 0순위: URL 파라미터. 출장 목록(/InOutMng/List?month=<상대개월>)이 같은 방식을 쓰므로
+  // 근태 현황도 받을 가능성이 높다. 되면 클릭을 아예 안 해도 되니 가장 확실하다.
+  const now = new Date();
+  const offset = (ty * 12 + tm) - (now.getFullYear() * 12 + (now.getMonth() + 1));
+  if (offset !== 0) {
+    await goto(tabId, `${USER_HOST}/InOutMng/InOutHistory?month=${offset}`);
+    await sleep(900);
+    const lm = /(\d{4})년\s*(\d{1,2})월/.exec(await readMonthLabel(tabId));
+    if (lm && +lm[1] === ty && +lm[2] === tm) return;
+  }
+
   for (let i = 0; i < 24; i++) {
     const label = await readMonthLabel(tabId);
     const lm = label.match(/(\d{4})년\s*(\d{1,2})월/);
@@ -87,25 +101,62 @@ async function navigateToMonth(tabId, ty, tm) {
 // 목표월 화면인지 확인. 화살표 클릭은 실제 마크업에 기대는 취약한 방식이라
 // 조용히 실패할 수 있는데, 그때 다른 달 숫자를 요청한 달의 결과로 내놓으면
 // 합계·휴일근무가 통째로 틀린 채 그럴듯해 보인다. 틀린 답보다 실패가 낫다.
-function assertMonthMatches(month, ty, tm, label, monthOf) {
+function monthMatches(ty, tm, label, monthOf) {
   const lm = /(\d{4})년\s*(\d{1,2})월/.exec(label || '');
   const seen = [...new Set(Object.values(monthOf || {}))];
-  const wrongCards = seen.filter((mo) => mo !== tm);
-  const labelOk = lm ? +lm[1] === ty && +lm[2] === tm : null;
+  if (lm && (+lm[1] !== ty || +lm[2] !== tm)) return false;   // 라벨이 다른 달
+  if (seen.some((mo) => mo !== tm)) return false;             // 카드가 다른 달
+  if (!lm && !seen.length) return false;                      // 아무것도 못 읽음
+  return true;
+}
 
-  if (labelOk === false || wrongCards.length) {
-    const shown = lm ? `${lm[1]}년 ${lm[2]}월` : (wrongCards.length ? `${wrongCards.join('·')}월` : '알 수 없음');
-    const e = new Error(`${ty}년 ${tm}월 화면으로 이동하지 못했어요`);
-    e.detail = `타임인아웃이 ${shown} 화면에 머물러 있어요. 그대로 계산하면 다른 달 기록이 ${month} 결과로 나오기 때문에 중단했습니다.\n`
-      + `타임인아웃 근태 현황에서 ${ty}년 ${tm}월로 직접 옮긴 뒤 다시 시도해주세요. 계속 실패하면 알려주세요 — 월 이동 버튼 모양이 바뀐 것일 수 있어요.`;
-    throw e;
+// 월 이동에 실패했을 때, 라벨 주변이 실제로 어떻게 생겼는지 긁어 온다.
+// 이게 없으면 "화살표가 어디 있나"를 계속 추측해야 한다.
+async function describeMonthNav(tabId) {
+  return evaluate(tabId, () => {
+    const all = [...document.querySelectorAll('*')];
+    const labelEl = all.find((el) => el.children.length === 0 && /\d{4}년\s*\d{1,2}월/.test(el.textContent || ''));
+    if (!labelEl) return { found: false, url: location.href };
+    const brief = (el) => {
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 14);
+      return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.') : ''}${t ? ` "${t}"` : ''}`;
+    };
+    const box = labelEl.getBoundingClientRect();
+    const around = [];
+    for (const dx of [-60, -40, -28, -20, 20, 28, 40, 60]) {
+      const el = document.elementFromPoint(dx < 0 ? box.left + dx : box.right + dx, box.top + box.height / 2);
+      if (el && el !== labelEl) around.push(`${dx > 0 ? '+' : ''}${dx}px → ${brief(el)}`);
+    }
+    const row = labelEl.closest('div, header, nav, section') || labelEl.parentElement;
+    const sibs = [...(row ? row.querySelectorAll('a,button,i,span,img,svg,[onclick]') : [])]
+      .filter((el) => el.offsetParent !== null && !el.contains(labelEl)).slice(0, 12).map(brief);
+    return { found: true, url: location.href, label: brief(labelEl), parent: row ? brief(row) : '', around, sibs };
+  }).catch(() => ({ found: false }));
+}
+
+async function monthMismatchError(tabId, month, ty, tm, label, monthOf) {
+  const lm = /(\d{4})년\s*(\d{1,2})월/.exec(label || '');
+  const seen = [...new Set(Object.values(monthOf || {}))];
+  const shown = lm ? `${lm[1]}년 ${lm[2]}월` : (seen.length ? `${seen.join('·')}월` : '알 수 없음');
+  const nav = await describeMonthNav(tabId);
+
+  const e = new Error(`${ty}년 ${tm}월 화면으로 이동하지 못했어요`);
+  const lines = [
+    `타임인아웃이 ${shown} 화면에 머물러 있어요. 그대로 계산하면 다른 달 기록이 ${month} 결과로 나오기 때문에 중단했습니다.`,
+    `타임인아웃 근태 현황에서 ${ty}년 ${tm}월로 직접 옮긴 뒤 다시 시도하면 조회됩니다.`,
+    '',
+    '아래는 개발자에게 그대로 전달해주시면 월 이동을 고칠 수 있는 정보예요.',
+    `주소: ${nav.url || '(모름)'}`,
+  ];
+  if (nav.found) {
+    lines.push(`월 라벨: ${nav.label}`, `묶은 요소: ${nav.parent}`);
+    if (nav.around?.length) lines.push('라벨 좌우 좌표에 있는 것:', ...nav.around.map((x) => `  ${x}`));
+    if (nav.sibs?.length) lines.push('주변 클릭 후보:', ...nav.sibs.map((x) => `  ${x}`));
+  } else {
+    lines.push('월 라벨(YYYY년 M월)을 화면에서 찾지 못했어요.');
   }
-  // 라벨을 아예 못 읽었는데 카드도 없으면 빈 달인지 이동 실패인지 구분이 안 된다.
-  if (labelOk === null && !seen.length) {
-    const e = new Error(`${ty}년 ${tm}월 기록을 확인하지 못했어요`);
-    e.detail = '타임인아웃 화면에서 월 표시와 근태 카드를 둘 다 찾지 못했어요. 로그인이 풀렸거나 화면 구조가 바뀐 것일 수 있어요.';
-    throw e;
-  }
+  e.detail = lines.join('\n');
+  return e;
 }
 
 // 근태 카드 스크래핑 — 데스크톱 page.evaluate 그대로.
