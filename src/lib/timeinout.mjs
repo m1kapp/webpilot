@@ -6,50 +6,26 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getBrowser, closeBrowser, snap } from './browser.mjs';
 import { authPath, ensureAuthDir } from './paths.mjs';
+// 계산·파싱은 전부 코어(src/core)에 있다. 이 파일은 Playwright로 "가져오는" 일만 한다.
+import { DOW, KR_HOLIDAYS, monthRange, submitDateRange, yearRange } from '../core/calendar.mjs';
+import { fmt, mapPool, parseTimeH, stopwatch } from '../core/util.mjs';
+import { buildDays, cardsToByDay, parseCardInOut, rowsToByDay } from '../core/attendance.mjs';
 export { closeBrowser };
+export { fmt };
+
+// 로그인 실패 화면에서 사이트가 보여주는 실제 에러 문구를 긁어 상세 메시지에 붙임 (왜 실패했는지 원인 구분용)
+async function loginFailHint(page) {
+  return page.evaluate(() => {
+    const text = (document.body.innerText || '').replace(/\s+/g, ' ');
+    const m = text.match(/[^.]{0,10}(비밀번호|아이디|계정|잠금|잠겼|차단|인증|OTP|보안|틀렸|일치하지|caught|캡차)[^.]{0,60}/);
+    return m ? m[0].trim().slice(0, 140) : '';
+  }).catch(() => '');
+}
 
 const HOST = 'https://com.timeinout.kr';
 const USER_HOST = 'https://user.timeinout.kr';
 const AUTH = authPath('timeinout-admin.json');
 const USER_AUTH = authPath('timeinout-user.json');
-const DAILY_BASE = 8 * 60;      // 480분
-const MONTH_LIMIT = 52 * 60;    // 3120분
-const BREAK_MIN = 90;           // 점심 60 + 저녁 30
-const SUSPECT_MIN = 16 * 60;    // 16시간 초과 = 미체크아웃 의심
-// 평일 공휴일 라벨/보정 (타임인아웃이 대부분 자체 마킹하지만 안전망 + 라벨용).
-// 근로자의 날(5/1)은 관공서 공휴일은 아니나 근로기준법상 유급휴일 → 휴일 처리.
-// 음력·대체공휴일 포함 2026 전체. 연도 넘어가면 갱신 필요.
-const KR_HOLIDAYS = {
-  '2026-01-01': '신정',
-  '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴',
-  '2026-03-01': '삼일절', '2026-03-02': '대체공휴일(삼일절)',
-  '2026-05-01': '근로자의 날',
-  '2026-05-05': '어린이날',
-  '2026-05-24': '부처님오신날', '2026-05-25': '대체공휴일(부처님오신날)',
-  '2026-06-03': '지방선거', '2026-06-06': '현충일',
-  '2026-08-15': '광복절', '2026-08-17': '대체공휴일(광복절)',
-  '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴', '2026-09-28': '대체공휴일(추석)',
-  '2026-10-03': '개천절', '2026-10-05': '대체공휴일(개천절)',
-  '2026-10-09': '한글날',
-  '2026-12-25': '성탄절',
-};
-const DOW = ['일', '월', '화', '수', '목', '금', '토'];
-const serialToDate = (s) => new Date(Math.round((s - 25569) * 86400 * 1000)); // UTC
-export const fmt = (m) => { const s = m < 0 ? '-' : ''; m = Math.abs(m); return `${s}${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`; };
-const hhmm = (dec) => { if (dec == null) return ''; let total = Math.round(dec * 60); let over = false; if (total >= 1440) { total -= 1440; over = true; } const h = Math.floor(total / 60); const mm = total % 60; return `${over ? '익일 ' : ''}${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
-
-function monthRange(month) {
-  const [y, m] = month.split('-').map(Number);
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const p = (n) => String(n).padStart(2, '0');
-  return { y, m, last, sdate: `${y}-${p(m)}-01`, edate: `${y}-${p(m)}-${p(last)}` };
-}
-// month의 연도 전체 범위(달력 뷰용): sdate=1/1 ~ edate=12/31, months=그 해 12개월 라벨
-function yearRange(month) {
-  const y = month.split('-')[0];
-  const months = Array.from({ length: 12 }, (_, k) => `${y}-${String(k + 1).padStart(2, '0')}`);
-  return { months, sdate: `${y}-01-01`, edate: `${y}-12-31` };
-}
 
 async function isLoggedIn(context) {
   const page = await context.newPage();
@@ -72,8 +48,10 @@ async function login(context, { id, pw }, snapshots) {
   ]);
   await page.waitForTimeout(1500);
   if (/login/i.test(page.url()) || (await page.locator('input[name="Password"]').count()) > 0) {
+    await snap(page, '로그인 실패 화면', snapshots);
+    const hint = await loginFailHint(page);
     await page.close();
-    throw new Error('로그인 실패 — 아이디/비번 또는 추가인증 확인');
+    throw new Error(`로그인 실패 — 아이디/비번 또는 추가인증 확인${hint ? ` (사이트 메시지: ${hint})` : ''}`);
   }
   await snap(page, '로그인 완료 · 관리자 대시보드', snapshots);
   const detected = await page.locator('span.name').first().innerText({ timeout: 2000 }).catch(() => '');
@@ -287,136 +265,14 @@ async function fetchLeaveByType(context, { sdate, edate }, snapshots) {
   } catch { return null; } finally { await page.close(); }
 }
 
-// 관리자 xlsx → 정규화된 byDay → 공용 계산
-// xlsx 컬럼: 0날짜 7근로정책상세 8실출근 9실퇴근 10인정출근 11인정퇴근 12출근상태 13퇴근상태 15비업무
+// 관리자 xlsx 파일 → 코어 계산. 파일 읽기만 여기 남기고 행 해석은 코어(rowsToByDay)가 한다.
 function analyze(xlsxPath, month, corrections = {}, leaves = {}) {
   const wb = xlsx.readFile(xlsxPath);
   const rows = xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }).slice(1);
-  const toH = (serial, inSerial) => serial == null ? null : +(((serial - Math.floor(inSerial ?? serial)) * 24)).toFixed(4);
-  const netWork = (a, b) => (a == null || b == null) ? 0 : Math.max(0, (b - a) * 1440 - BREAK_MIN);
-  const byDay = {};
-  for (const r of rows) {
-    const s = r[0]; if (typeof s !== 'number') continue;
-    const realIn = typeof r[8] === 'number' ? r[8] : null;
-    const realOut = typeof r[9] === 'number' ? r[9] : null;
-    byDay[serialToDate(s).getUTCDate()] = {
-      inH: toH(realIn),
-      outH: (realOut != null && realIn != null) ? toH(realOut, realIn) : null,
-      recogMin: netWork(typeof r[10] === 'number' ? r[10] : null, typeof r[11] === 'number' ? r[11] : null),
-      policy: String(r[7] || ''), inStat: String(r[12] || ''), outStat: String(r[13] || ''), nonWork: String(r[15] || ''),
-    };
-  }
-  return buildDays(byDay, month, corrections, leaves);
-}
-
-// 공용 계산부: 정규화 byDay { inH, outH(익일이면 >24), recogMin, policy, inStat, outStat, nonWork } → days + summary
-function buildDays(byDay, month, corrections = {}, leaves = {}, trips = {}) {
-  const { y, m, last } = monthRange(month);
-  const days = [];
-  let totalMin = 0, wdOtSum = 0, holSum = 0, recogTotal = 0;
-  let adjTotal = 0, adjWdOt = 0, adjHol = 0;
-  for (let day = 1; day <= last; day++) {
-    const dow = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
-    const weekend = dow === 0 || dow === 6;
-    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const namedHol = KR_HOLIDAYS[dateStr];
-    const e = byDay[day];
-    const holidayPolicy = e ? /휴일|휴무/.test(e.policy) || /휴일/.test(e.nonWork) : false;
-    const holiday = weekend || holidayPolicy || !!namedHol;
-
-    const hasIn = !!(e && e.inH != null), hasOut = !!(e && e.outH != null);
-    const rawWork = (hasIn && hasOut) ? Math.max(0, (e.outH - e.inH) * 60 - BREAK_MIN) : 0; // 찐 근로(휴게 제외)
-    const recogWork = e ? (e.recogMin || 0) : 0;                // 회사 인정 근로
-    const suspect = rawWork > SUSPECT_MIN;                       // 미체크아웃 의심
-    // 보정: 의심일은 회사 인정값으로 대체
-    const realWork = suspect ? recogWork : rawWork;
-    const baseMin = holiday ? 0 : Math.min(realWork, DAILY_BASE);
-    const wdOtMin = holiday ? 0 : Math.max(0, realWork - DAILY_BASE);
-    const holMin = holiday ? realWork : 0;
-
-    const inH = hasIn ? e.inH : null;
-    const outH = (hasIn && hasOut) ? e.outH : null;
-    const recogOutH = null;
-
-    const lv = leaves[day];
-    const trip = !holiday ? trips[day] : null;   // 출장·외근(평일). 승인/진행만 상위에서 걸러 옴
-    const isFullLeave = !!(lv && lv.days >= 1);
-    const isAbsent = !!(e && e.inStat === '결근');
-    // 한쪽만 찍힘(출근만/퇴근만)
-    const oneSided = !!(e && ((hasIn && !hasOut) || (!hasIn && hasOut)));
-    // 기록 누락: 평일(공휴일X, 종일휴가X, 출장X)인데 기록없음/한쪽만/이상치(미체크아웃 의심)/결근
-    const missing = !holiday && !isFullLeave && !trip && (realWork === 0 || oneSided || suspect || isAbsent);
-
-    let status = '';
-    if (missing) {
-      const why = suspect ? '미체크아웃 의심' : oneSided ? '한쪽만 기록' : isAbsent ? '결근' : '기록 누락';
-      status = lv ? `${lv.type} ${lv.detail} · ${why}` : why;
-    }
-    else if (trip && realWork === 0) status = `${trip.type}${trip.place ? ' · ' + trip.place : ''}`;
-    else if (isFullLeave || (lv && realWork === 0)) status = `${lv.type}${lv.detail ? ' ' + lv.detail : ''}`;
-    else if (e) {
-      if (namedHol) status = namedHol + (realWork > 0 ? ' 근무' : '');
-      else if (holidayPolicy) status = realWork > 0 ? '휴일근무' : (e.policy || '휴일');
-      else if (weekend && realWork > 0) status = '주말근로';
-      else if (lv) status = `${lv.type}${lv.detail ? ' ' + lv.detail : ''}(+근무)`;
-      else if (e.inStat && e.inStat !== '출근') status = e.inStat;         // 지각 등
-      else if (e.outStat && !['퇴근', '-'].includes(e.outStat)) status = e.outStat; // 조퇴 등
-      else if (weekend) status = '휴일';
-    } else if (namedHol) status = namedHol;
-    else if (weekend) status = '휴일';
-
-    const capped = e && !suspect && rawWork - recogWork > 1; // 인정시간에 잘린(정상) 날
-    const corr = corrections[day];
-    days.push({
-      day, dow: DOW[dow], weekend, holiday,
-      workMin: realWork, rawWorkMin: rawWork, recogWorkMin: recogWork,
-      baseH: +(baseMin / 60).toFixed(2), otH: +(wdOtMin / 60).toFixed(2), holH: +(holMin / 60).toFixed(2),
-      otMin: Math.round(wdOtMin), holMin: Math.round(holMin),
-      inH, outH, recogOutH, inText: hhmm(inH), outText: hhmm(outH),   // 출퇴근 막대는 항상 '찐 펀치'
-      capped, cutMin: capped ? Math.round(rawWork - recogWork) : 0,
-      suspect, missing,
-      corrected: !!corr, correctReason: corr ? corr.reason : '', correctStatus: corr ? corr.status : '',
-      corrIn: corr && corr.reqIn ? corr.reqIn : '', corrOut: corr && corr.reqOut ? corr.reqOut : '',
-      isLeave: !!lv, leaveType: lv ? lv.type : '', leaveDetail: lv ? lv.detail : '', leaveDays: lv ? lv.days : 0, leaveHours: lv ? lv.hours : 0,
-      isTrip: !!trip, tripType: trip ? trip.type : '', tripPlace: trip ? trip.place : '', tripRegion: trip ? trip.region : '',
-      status,
-    });
-    // 보정 총합(의심일=인정값)
-    totalMin += realWork; wdOtSum += wdOtMin; holSum += holMin;
-    recogTotal += recogWork;
-    // raw 총합(찐 펀치 그대로)
-    adjTotal += rawWork;
-    if (!holiday) adjWdOt += Math.max(0, rawWork - DAILY_BASE); else adjHol += rawWork;
-  }
-  const otSum = wdOtSum + holSum;                 // 보정 초과근무
-  const rawOtSum = adjWdOt + adjHol;              // raw 초과근무
-  const gap = totalMin - recogTotal;              // 회사가 안 쳐준 시간(보정 기준)
-  return {
-    month, days,
-    summary: {
-      totalMin, totalText: fmt(totalMin),
-      otSum, otText: fmt(otSum), otHours: +(otSum / 60).toFixed(1),
-      wdOtMin: wdOtSum, wdOtText: fmt(wdOtSum),
-      holMin: holSum, holText: fmt(holSum),
-      recogMin: recogTotal, recogText: fmt(recogTotal),
-      gapMin: gap, gapText: fmt(gap),
-      rawTotalMin: adjTotal, rawTotalText: fmt(adjTotal),
-      rawOtSum, rawOtText: fmt(rawOtSum), rawOtHours: +(rawOtSum / 60).toFixed(1),
-      cappedDays: days.filter(d => d.capped).length,
-      suspectDays: days.filter(d => d.suspect).length,
-      limitHours: 52, over52: otSum > MONTH_LIMIT,
-    },
-  };
+  return buildDays(rowsToByDay(rows), month, corrections, leaves);
 }
 
 // ───────────── 직원(본인) 모드: user.timeinout.kr ─────────────
-// 대상월 기준 넓은 신청일 범위(±2개월)로 상신함을 조회 — 다른 달에 신청된 건을 놓치지 않도록
-function submitDateRange(month) {
-  const [ty, tm] = String(month).split('-').map(Number);
-  const at = (delta) => { const i = tm - 1 + delta; return { y: ty + Math.floor(i / 12), m: ((i % 12) + 12) % 12 + 1 }; };
-  const s = at(-2), e = at(+2);
-  return { start: `${s.y}-${s.m}-1`, end: `${e.y}-${e.m}-28` };
-}
 // 결재함 상신함에서 '이미 신청한 출퇴근시간수정' 내역 수집 (직원 세션 필요)
 // 반환: { byDate: {근로일:{status,reqIn,reqOut}}, ok } — ok=false면 조회 신뢰불가(중복 신청 차단용)
 export async function getSubmittedCorrections(log, month) {
@@ -459,8 +315,6 @@ export async function getSubmittedCorrections(log, month) {
   finally { await ctx.close().catch(() => {}); }
 }
 
-const parseTimeH = (str) => { const m = String(str).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/); return m ? +(+m[1] + (+m[2]) / 60 + (+(m[3] || 0)) / 3600).toFixed(4) : null; };
-const parseDurMin = (str) => { const h = String(str).match(/(\d+)\s*시간/); const mi = String(str).match(/(\d+)\s*분/); return (h ? +h[1] : 0) * 60 + (mi ? +mi[1] : 0); };
 
 async function loginUser(context, { id, pw }, snapshots) {
   if (!id || !pw) throw new Error('아이디/비번이 필요합니다');
@@ -472,12 +326,23 @@ async function loginUser(context, { id, pw }, snapshots) {
   await Promise.all([page.waitForLoadState('networkidle').catch(() => {}), page.getByRole('button', { name: '로그인' }).first().click()]);
   await page.waitForTimeout(1800);
   if (/login/i.test(page.url()) || (await page.locator('input[name="Password"]').count()) > 0) {
-    await page.close(); throw new Error('로그인 실패 — 아이디/비번 확인');
+    await snap(page, '로그인 실패 화면', snapshots);
+    const hint = await loginFailHint(page);
+    await page.close();
+    throw new Error(`로그인 실패 — 아이디/비번 확인${hint ? ` (사이트 메시지: ${hint})` : ''}`);
   }
   await snap(page, '직원 홈 · 나의 근태', snapshots);
   ensureAuthDir();
   await context.storageState({ path: USER_AUTH });
   await page.close();
+}
+
+// 계정 연결: 저장 전에 실제 로그인해서 아이디/비번이 맞는지 확인 (틀리면 여기서 에러 throw)
+export async function verifyUserLogin({ id, pw }) {
+  const browser = await getBrowser();
+  const context = await browser.newContext();
+  try { await loginUser(context, { id, pw }, []); }
+  finally { await context.close(); }
 }
 
 // 나의 근태(일별)에서 해당 월 카드 스크래핑
@@ -501,20 +366,24 @@ async function fetchEmployeeCards(context, month, snapshots) {
   }
   await page.waitForTimeout(600);
   await snap(page, `나의 근태 ${ty}년 ${tm}월 조회`, snapshots);
-  const cards = await page.evaluate(() => {
-    const cand = {};
+  const { cards, hrefs } = await page.evaluate(() => {
+    const cand = {}, href = {};
     document.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 10) return;
       const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
       const dm = t.match(/^(\d{2})\.(\d{2})\s*\(/);
       if (!dm || !/IN /.test(t) || t.length > 280) return;
       const day = parseInt(dm[2], 10);
-      if (!cand[day] || t.length < cand[day].length) cand[day] = t;
+      if (!cand[day] || t.length < cand[day].length) {
+        cand[day] = t;
+        const a = el.matches('a[href*="InOutDetail"]') ? el : el.querySelector('a[href*="InOutDetail"]');
+        if (a) href[day] = a.getAttribute('href');
+      }
     });
-    return cand;
+    return { cards: cand, hrefs: href };
   });
   await page.close();
-  return cards;
+  return { cards, hrefs };
 }
 
 // 나의 휴가(연차) 내역 리스트 스크래핑 — 해당 월 일자별 map(byDay, 근태차트용) + 전체일수/잔여일수/만료일(balance) + 연간 사용이력(history)
@@ -542,38 +411,81 @@ async function fetchEmployeeLeaves(context, month, snapshots) {
       balance.push({ type, total: parseFloat(total) || 0, remaining: parseFloat(remaining) || 0, expire });
     }
 
+    // 목록(card_list)엔 종류가 없고 "휴가명"이 실은 종일/반차/반반차 구분일 뿐 — 실제 종류(연차휴가/기타휴가/경조사 등)는
+    // 상세페이지(/Leave/Detail/{id})에만 있음. 신청 1건이 여러 날짜를 묶기도 해서 링크 기준으로 중복 제거 후 방문.
+    const rows = await page.evaluate(() => [...document.querySelectorAll('ul.card_list > li')].map((li) => ({
+      href: li.querySelector('a')?.getAttribute('href') || '',
+      date: (li.querySelector('.card_date .date')?.innerText || '').match(/\d{4}-\d{2}-\d{2}/)?.[0] || '',
+      detail: (li.querySelector('.inout_area li:nth-child(1) span')?.innerText || '').trim(),
+      days: parseFloat((li.querySelector('.inout_area li:nth-child(2) span')?.innerText || '').replace(/[^0-9.]/g, '')) || 0,
+    })).filter((r) => r.date && r.href));
+
+    const typeByDate = {};
+    const uniqueHrefs = [...new Set(rows.map((r) => r.href))].slice(0, 20); // 안전 상한
+    const dtick = stopwatch('timeinout');
+    let dn = 0;
+    await mapPool(uniqueHrefs, 4, async (href) => { // 4개씩 동시 조회 — 순차 대비 대략 4배 빠름
+      try {
+        const dp = await context.newPage();
+        await dp.goto(`${USER_HOST}${href}`, { waitUntil: 'networkidle', timeout: 15000 });
+        const dtext = await dp.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
+        const dRe = /(\d{4}-\d{2}-\d{2})\s*\([^)]*\)\s*([가-힣]{2,8})\s*(1일\(종일\)|반차|반반차)/g;
+        let dm;
+        while ((dm = dRe.exec(dtext))) typeByDate[dm[1]] = dm[2];
+        await dp.close();
+      } catch { /* 개별 상세조회 실패는 스킵 — 종류 없이("연차휴가" 기본) 표기 */ }
+      dn++; dtick(`휴가 종류 상세조회 ${dn}/${uniqueHrefs.length}`);
+    });
+
     // 연간 사용이력(이 해에 실제 쓴 날짜들) + 해당 월만 뽑은 byDay(근태차트용, 기존 동작 유지)
     const byDay = {};
-    const history = [];
-    const re = /(\d{4}-\d{2}-\d{2})\s*\([^)]*\)\s*휴가명\s*(.+?)\s*휴가일수\s*([\d.]+)\s*일/g;
-    let mm;
-    while ((mm = re.exec(text))) {
-      const [, date, rawName, daysStr] = mm;
-      const days = parseFloat(daysStr) || 0;
-      history.push({ date, dow: DOW[new Date(date + 'T00:00:00Z').getUTCDay()], detail: rawName.trim(), days });
-      if (!date.startsWith(month)) continue;
-      byDay[Number(date.slice(8, 10))] = { type: '연차휴가', detail: rawName.trim(), days, hours: Math.round(days * 8) };
+    const history = rows.map((r) => ({
+      date: r.date, dow: DOW[new Date(r.date + 'T00:00:00Z').getUTCDay()],
+      type: typeByDate[r.date] || '연차휴가', detail: r.detail, days: r.days,
+    }));
+    for (const h of history) {
+      if (!h.date.startsWith(month)) continue;
+      byDay[Number(h.date.slice(8, 10))] = { type: h.type, detail: h.detail, days: h.days, hours: Math.round(h.days * 8) };
     }
     history.sort((a, b) => b.date.localeCompare(a.date)); // 최신순
     return { byDay, balance, history };
   } catch { return { byDay: {}, balance: [], history: [] }; } finally { await page.close(); }
 }
-
-function analyzeEmployee(cards, month, corrections = {}, leaves = {}, trips = {}) {
-  const byDay = {};
-  for (const [day, t] of Object.entries(cards)) {
-    const inM = (t.match(/IN\s+([\d:]+|-)/) || [])[1];
-    const outM = (t.match(/OUT\s+([\d:]+|-)/) || [])[1];
-    const recM = (t.match(/인정\s*시간\s+([\d]+\s*시간\s*[\d]*\s*분|[\d]+\s*분|-)/) || [])[1] || '-';
-    const inStat = (t.match(/출근\s*상태\s+(\S+)/) || [])[1] || '';
-    const outStat = (t.match(/퇴근\s*상태\s+(\S+)/) || [])[1] || '';
-    const nonWork = (t.match(/비업무\s+(\S+)/) || [])[1] || '';
-    let inH = inM && inM !== '-' ? parseTimeH(inM) : null;
-    let outH = outM && outM !== '-' ? parseTimeH(outM) : null;
-    if (inH != null && outH != null && outH < inH) outH += 24; // 익일 퇴근
-    byDay[+day] = { inH, outH, recogMin: recM === '-' ? 0 : parseDurMin(recM), policy: '', inStat, outStat, nonWork };
+// 캘린더 카드 표시 버그 감지·보정: 자정 넘나든 다음날 카드의 IN이 전날 OUT(mod 24)과 거의 같으면
+// (전날 근무의 잔여 태그가 잘못 붙은 경우) 진짜 출퇴근시간수정 상세페이지(InOutDetail)에서 재확인해 덮어씀.
+async function fixSpilloverDays(context, cards, hrefs) {
+  const days = Object.keys(cards).map(Number).sort((a, b) => a - b);
+  const parsed = {};
+  for (const d of days) parsed[d] = parseCardInOut(cards[d]);
+  const overrides = {};
+  const suspects = [];
+  for (const d of days) {
+    const prev = parsed[d - 1], cur = parsed[d];
+    if (!prev || !cur || prev.outH == null || cur.inH == null) continue;
+    const prevOutMod = prev.outH % 24;
+    if (Math.abs(prevOutMod - cur.inH) < 0.05 && hrefs[d]) suspects.push(d); // 3분 이내 오차 → 스필오버 의심
   }
-  return buildDays(byDay, month, corrections, leaves, trips);
+  if (!suspects.length) return overrides;
+  await mapPool(suspects, 3, async (d) => {
+    try {
+      const dp = await context.newPage();
+      await dp.goto(`${USER_HOST}${hrefs[d]}`, { waitUntil: 'networkidle', timeout: 15000 });
+      const val = await dp.evaluate(() => {
+        const inputs = [...document.querySelectorAll('input')].map((i) => i.value || '');
+        return inputs.find((v) => /\d{1,2}:\d{2}:\d{2}\s*~\s*\d{1,2}:\d{2}:\d{2}/.test(v)) || '';
+      });
+      await dp.close();
+      const m = val.match(/(\d{1,2}:\d{2}:\d{2})\s*~\s*(\d{1,2}:\d{2}:\d{2})/);
+      if (!m) return;
+      let inH = parseTimeH(m[1]), outH = parseTimeH(m[2]);
+      if (inH != null && outH != null && outH < inH) outH += 24;
+      overrides[d] = { inH, outH };
+    } catch { /* 상세조회 실패 — 원래 카드값 유지 */ }
+  });
+  if (Object.keys(overrides).length) {
+    console.error(`[timeinout] 캘린더 표시 오류 의심 ${suspects.length}건 → 상세페이지로 재확인·보정 (${Object.keys(overrides).join(',')}일)`);
+  }
+  return overrides;
 }
 
 // 출장·외근 내역 (user 사이트 /InOutMng/List, 월 단위). 승인/진행건만 근로일 map으로.
@@ -622,25 +534,28 @@ export async function getOvertimeEmployee({ month, id, pw, onSnapshot }) {
   if (onSnapshot) snapshots.onSnap = onSnapshot; // 캡처 즉시 전송
   const browser = await getBrowser();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+  const tick = stopwatch('timeinout');
   try {
-    console.error('[timeinout] 로그인 중…');
     await loginUser(ctx, creds, snapshots);
-    console.error('[timeinout] 나의 근태 카드 조회 중…');
-    const cards = await fetchEmployeeCards(ctx, month, snapshots);
-    console.error('[timeinout] 휴가 내역 조회 중…');
+    tick('로그인 완료');
+    const { cards, hrefs } = await fetchEmployeeCards(ctx, month, snapshots);
+    tick('나의 근태 카드 조회 완료');
+    const overrides = await fixSpilloverDays(ctx, cards, hrefs);
+    if (Object.keys(overrides).length) tick(`캘린더 표시 오류 보정 완료 (${Object.keys(overrides).join(',')}일)`);
     const { byDay: leaves, balance: leaveBalance, history: leaveHistory } = await fetchEmployeeLeaves(ctx, month, snapshots);
-    console.error('[timeinout] 출장·외근 내역 조회 중…');
+    tick('휴가 내역 조회 완료');
     const trips = await fetchEmployeeTrips(ctx, month, snapshots).catch(() => ({}));
+    tick('출장·외근 내역 조회 완료');
     // 정정 트래킹: 결재함 상신함의 '출퇴근시간수정'(대기·승인)을 근로일 기준으로 매핑
-    console.error('[timeinout] 정정 신청 내역 조회 중…');
     const sub = await getSubmittedCorrections((m) => console.error('[timeinout]', m), month).catch(() => ({ byDate: {} }));
+    tick('정정 신청 내역 조회 완료');
     const corrections = {};
     for (const [date, v] of Object.entries(sub.byDate || {})) {
       if (!date.startsWith(month)) continue;
       corrections[Number(date.slice(8, 10))] = { reason: `출퇴근수정 ${v.status}`, status: v.status, reqIn: v.reqIn, reqOut: v.reqOut };
     }
-    console.error('[timeinout] 완료 — 결과 전송');
-    return { name: '본인', mode: 'employee', corrections, leaves, trips, snapshots, ...analyzeEmployee(cards, month, corrections, leaves, trips) };
+    tick('완료 — 결과 전송');
+    return { name: '본인', mode: 'employee', corrections, leaves, trips, snapshots, ...buildDays(cardsToByDay(cards, overrides), month, corrections, leaves, trips) };
   } finally {
     await ctx.close().catch(() => {}); // 컨텍스트만 닫고 브라우저는 재사용
   }
@@ -654,13 +569,16 @@ export async function getEmployeeLeaveStatus({ month, id, pw, onSnapshot }) {
   if (onSnapshot) snapshots.onSnap = onSnapshot;
   const browser = await getBrowser();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+  const tick = stopwatch('timeinout');
   try {
-    console.error('[timeinout] 로그인 중…');
     await loginUser(ctx, creds, snapshots);
-    console.error('[timeinout] 휴가 내역 조회 중…');
+    tick('로그인 완료');
     const { balance: leaveBalance, history: leaveHistory } = await fetchEmployeeLeaves(ctx, month, snapshots);
-    console.error('[timeinout] 완료 — 결과 전송');
-    return { recipe: 'leave-personal', name: '본인', month, leaveBalance, leaveHistory, snapshots, summary: { types: leaveBalance.length, used: leaveHistory.length } };
+    tick('완료 — 결과 전송');
+    // 연간 달력용 공휴일 — 조회 연도 것만
+    const year = month.slice(0, 4);
+    const holidays = Object.fromEntries(Object.entries(KR_HOLIDAYS).filter(([d]) => d.startsWith(year)));
+    return { recipe: 'leave-personal', name: '본인', month, leaveBalance, leaveHistory, holidays, snapshots, summary: { types: leaveBalance.length, used: leaveHistory.length } };
   } finally {
     await ctx.close().catch(() => {});
   }

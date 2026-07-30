@@ -1,29 +1,36 @@
-// Flow 오픈 API 클라이언트 (api.flow.team, x-flow-api-key 인증)
-// 근태 정정용: 그날 캘린더 활동시간(첫 일정~마지막 일정)으로 실제 근무시간대 추정
+// Flow 오픈 API 클라이언트(익스텐션판). src/lib/flow.mjs와 동일 로직.
+// 쿠키가 아니라 API 키 헤더 인증이라 탭 없이 백그라운드에서 바로 fetch한다. 키는 chrome.storage.local에.
 const HOST = 'https://api.flow.team';
-const key = () => process.env.FLOW_API_KEY || '';
+
+export async function getFlowKey() {
+  const { flowApiKey } = await chrome.storage.local.get('flowApiKey');
+  return flowApiKey || '';
+}
+export async function setFlowKey(key) {
+  await chrome.storage.local.set({ flowApiKey: key || '' });
+}
 
 async function flowGet(path, params = {}) {
-  if (!key()) throw new Error('FLOW_API_KEY가 .env에 없습니다');
+  const key = await getFlowKey();
+  if (!key) { const e = new Error('Flow API 키가 없습니다.'); e.needsFlowKey = true; throw e; }
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${HOST}${path}${qs ? '?' + qs : ''}`, { headers: { 'x-flow-api-key': key() } });
+  const res = await fetch(`${HOST}${path}${qs ? '?' + qs : ''}`, { headers: { 'x-flow-api-key': key } });
   const json = await res.json().catch(() => ({}));
   if (!json?.response?.success) throw new Error(json?.response?.error?.message || `Flow API 오류 (${res.status})`);
   return json.response.data;
 }
 
-const hhmm = (yyyymmddhhmmss) => {
-  const s = String(yyyymmddhhmmss || '');
-  return s.length >= 12 ? `${s.slice(8, 10)}:${s.slice(10, 12)}` : '';
-};
+const hhmm = (v) => { const s = String(v || ''); return s.length >= 12 ? `${s.slice(8, 10)}:${s.slice(10, 12)}` : ''; };
 
-// 계정 연결: 저장 전에 실제 API 키가 유효한지 확인 (틀리면 여기서 에러 throw)
+// 키 유효성 확인(설정 저장 전 검증용)
 export async function verifyFlowKey(apiKey) {
   if (!apiKey) throw new Error('API 키가 필요합니다');
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
-  const res = await fetch(`${HOST}/user/calendars/events?startDateTime=${today}000000&endDateTime=${today}235959`, { headers: { 'x-flow-api-key': apiKey } });
+  const res = await fetch(`${HOST}/user/calendars/events?startDateTime=${today}000000&endDateTime=${today}235959`,
+    { headers: { 'x-flow-api-key': apiKey } });
   const json = await res.json().catch(() => ({}));
   if (!json?.response?.success) throw new Error(json?.response?.error?.message || `flow.team API 키 확인 실패 (${res.status})`);
+  return true;
 }
 
 // 특정 일자(YYYY-MM-DD)의 내 캘린더 활동 → 첫/마지막 시각 + 일정 목록
@@ -37,8 +44,6 @@ export async function getDayActivity(dateStr) {
   const first = events[0] || null;
   const last = events.reduce((m, e) => (!m || String(e.end || e.start) > String(m.end || m.start) ? e : m), null);
   return {
-    events,
-    firstStart: first ? first.start : null, firstText: first ? first.startText : '',
-    lastEnd: last ? (last.end || last.start) : null, lastText: last ? (last.endText || last.startText) : '',
+    events, firstText: first ? first.startText : '', lastText: last ? (last.endText || last.startText) : '',
   };
 }

@@ -81,6 +81,34 @@
   .cal-chip { font-size:10.5px; background:#eaf0ff; color:#2f4bb8; border-radius:6px; padding:2px 5px; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; }
   .cal-chip-type { color:#7788c9; font-size:9.5px; }
   .cal-more { font-size:9.5px; color:#8a93a6; padding-left:2px; }
+  /* 연차 현황(개인) · 연간 달력 */
+  .yc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:18px 16px; }
+  .yc-month-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+  .yc-month-name { font-size:13px; font-weight:700; color:var(--ink); }
+  .yc-month-sum { font-size:11.5px; font-weight:700; color:#3b6fe0; }
+  .yc-month-sum.zero { color:#c1c6d2; font-weight:600; }
+  .yc-days { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+  .yc-dow { text-align:center; font-size:9.5px; color:#a2aabb; font-weight:700; padding-bottom:2px; }
+  .yc-dow.sun { color:#e08b86; }
+  .yc-cell { position:relative; aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    font-size:10.5px; font-weight:600; color:#5a6172; border-radius:6px; overflow:hidden; }
+  .yc-cell.pad { visibility:hidden; }
+  .yc-cell.sun, .yc-cell.sat { color:#b9c0cd; }
+  .yc-cell.hol { color:#c2362b; font-weight:800; background:#fdeeee; }
+  .yc-cell.wday { color:#a8700c; font-weight:800; background:#fdf5e6; } /* 근로자의 날 = 유급휴일(법정공휴일 아님) */
+  .yc-cell.today { box-shadow:inset 0 0 0 1.5px #f0a020; }
+  /* 휴가 채움: 셀 전체를 유형 색으로 덮고 사용일수는 투명도로 (종일 1 · 반차 0.5 · 반반차 0.25) */
+  .yc-fill { position:absolute; inset:0; }
+  .yc-cell .n { position:relative; z-index:1; }
+  .yc-cell.used { color:#1e2a4a; font-weight:800; }
+  .yc-cell.used.full { color:#fff; }
+  .yc-hols { margin-top:5px; display:flex; flex-direction:column; gap:1px; }
+  .yc-hols div { font-size:10px; color:#c2362b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .yc-hols div.w { color:#a8700c; }
+  .yc-hols div b { font-weight:700; margin-right:3px; }
+  .yc-legend { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; font-size:11.5px; color:var(--muted); }
+  .yc-legend i { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .yc-legend .sep { width:1px; height:12px; background:#e3e7f0; }
   #cl-summary-table th:first-child, #cl-summary-table td:first-child,
   #cl-monthly-table th:first-child, #cl-monthly-table td:first-child { width:84px; min-width:84px; white-space:nowrap; }
   .cl-half-toggle { display:inline-flex; background:#eef0f6; border-radius:8px; padding:2px; gap:2px; }
@@ -111,9 +139,12 @@
   .gauge-track { position:relative; height:14px; border-radius:7px; background:#eef0f6; overflow:hidden; margin:9px 0 5px; }
   .gauge-fill { position:absolute; top:0; left:0; height:100%; background:#3b6fe0; border-radius:7px 0 0 7px; transition:width .3s; }
   .gauge-fill.over { background:var(--red); }
-  .gauge-headroom { position:absolute; top:0; height:100%;
+  .gauge-fill-proj { position:absolute; top:0; height:100%; background:#3b6fe0; opacity:.45; transition:width .3s, left .3s; }
+  .gauge-fill-proj.over { background:var(--red); }
+  .gauge-headroom { position:absolute; top:0; height:100%; opacity:.55;
     background:repeating-linear-gradient(45deg, rgba(59,111,224,.28), rgba(59,111,224,.28) 4px, rgba(59,111,224,.09) 4px, rgba(59,111,224,.09) 8px); }
   .gauge-limit { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--red); }
+  .gauge-limit-pay { position:absolute; top:-2px; bottom:-2px; width:2px; background:#f0a020; }
   #status { color:var(--muted); font-size:14px; padding:8px 0; }
   h2 { font-size:16px; margin:0 0 14px; }
   input[type=password], input[type=text], #name, #month { min-width:150px; }
@@ -128,8 +159,10 @@
   .lights .r{background:#ff5f57;} .lights .y{background:#febc2e;} .lights .g{background:#28c840;}
   .urlbar { flex:1; background:#fff; border:1px solid #e2e5ee; border-radius:9px; padding:6px 12px;
     font-size:12.5px; color:#55607a; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .reload { background:#fff; border:1px solid #e2e5ee; color:#6b7385; width:auto; padding:6px 12px; font-size:12.5px; font-weight:600; border-radius:9px; }
-  .reload:hover { color:var(--accent); border-color:var(--accent); }
+  .icon-btn { background:transparent; border:none; color:#8a92a6; width:30px; height:30px; padding:0;
+    display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
+  .icon-btn svg { width:17px; height:17px; }
+  .icon-btn:hover { color:var(--accent); }
   /* 상단 로딩바 (브라우저 진행바) — 작업 중 계속 흐름 */
   .loadbar { height:3px; background:#eef1f9; overflow:hidden; position:relative; display:none; }
   .browser.loading .loadbar { display:block; }
@@ -184,6 +217,7 @@
   .hist-item:hover { background:#f5f6fb; }
   .hist-item .hi-top { display:flex; justify-content:space-between; align-items:baseline; font-size:11.5px; color:#8a93a6; }
   .hist-item .hi-stat { font-size:13px; font-weight:700; color:var(--ink); margin-top:3px; }
+  .hist-item .hi-dur { font-size:11px; color:#aab1c2; margin-top:2px; }
   .hist-empty { padding:24px 14px; color:var(--muted); font-size:12.5px; text-align:center; }
   .lp label { display:block; font-size:12px; font-weight:500; color:var(--muted); margin:14px 0 6px; }
   .lp label .opt { color:#aab1bf; }
@@ -201,7 +235,8 @@
 <body>
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand"><h1>🪽 webwing</h1></div>
+    <div class="brand" id="brand-home" style="cursor:pointer" title="새로고침"><h1>🪽 webwing</h1></div>
+    <select id="companySel" style="width:calc(100% - 20px);margin:0 10px 10px;padding:7px 8px;border-radius:8px;border:1px solid #e3e6ee;background:#fff;font-size:13px;font-weight:600;color:#3a3f52"></select>
     <div class="side-scroll">
       <div class="side-tabs">
         <button type="button" class="stab on" data-tab="recipes">자동화</button>
@@ -217,8 +252,12 @@
     <div class="chrome">
       <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
       <div class="urlbar" id="p-url">com.timeinout.kr</div>
-      <button type="button" class="reload" id="p-history" title="이력">📜 이력</button>
-      <button type="button" class="reload" id="p-reload" title="다시하기">↻ 다시하기</button>
+      <button type="button" class="icon-btn" id="p-history" title="이력">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.62-6.36L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="p-reload" title="다시하기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </button>
     </div>
     <div class="loadbar"></div>
     <div class="viewport">
@@ -234,6 +273,11 @@
           <div id="lp-acct" class="acct-chip"></div>
           <input id="month" type="month" style="width:100%" />
           <button id="go">🛫 Fly</button>
+          <div id="lp-evidence" style="display:none;width:100%">
+            <div id="ev-rows"></div>
+            <button type="button" id="ev-add-row" class="icon-btn" style="width:auto;padding:4px 10px;gap:4px;color:#5a6172;font-size:12.5px;font-weight:600">+ 행 추가</button>
+            <button id="ev-generate" style="margin-top:8px">🧾 증빙 이미지 생성</button>
+          </div>
           <div id="status"></div>
         </div>
       </div>
@@ -261,10 +305,10 @@
     </div>
 
     <div class="kpis" id="kpis">
-      <div class="kpi">
+      <div class="kpi" id="kpi-ot">
         <div class="l">초과근무 합계 (평일 8h 초과) · 목표 52h</div>
         <div class="v" id="k-ot">-</div>
-        <div class="gauge-track"><div class="gauge-fill" id="ot-fill"></div><div class="gauge-headroom" id="ot-headroom"></div><div class="gauge-limit" id="ot-limit-line"></div></div>
+        <div class="gauge-track"><div class="gauge-fill" id="ot-fill"></div><div class="gauge-fill-proj" id="ot-fill-proj"></div><div class="gauge-headroom" id="ot-headroom"></div><div class="gauge-limit-pay" id="ot-pay-line" title="30h부터 수당 발생"></div><div class="gauge-limit" id="ot-limit-line"></div></div>
         <div class="l" id="k-limit"></div>
         <div class="l" id="k-pace" style="margin-top:2px"></div>
       </div>
@@ -276,7 +320,7 @@
       <canvas id="clock" height="120"></canvas>
       <p style="color:var(--muted);font-size:12px;margin:12px 0 0">
         평일: <b style="color:#4b62d6">근무 4h</b> → <b>점심 1h</b> → <b style="color:#4b62d6">근무 4h</b> → <b>저녁 30m</b> → <b style="color:#e5544c">나머지=야근</b> ·
-        <b style="color:#c2362b">휴일근무</b> · <b style="color:#2f9d70">휴가</b> · <b style="color:#1f93b0">정정</b> · <b style="color:#c9a94e">공휴일</b>(근로자의날·대체 등) · <b style="color:#7f8bd0">출장</b>(외근) · 기록누락=연회색 · 막대는 <b>찐 퇴근</b> · 아래로 길수록 <b>야근</b> · 24h 아래=<b>익일 퇴근</b>
+        <b style="color:#c2362b">휴일근무</b> · <b style="color:#2f9d70">휴가</b> · <b style="color:#1f93b0">정정</b> · <b style="color:#c9a94e">공휴일</b>(근로자의날·대체 등) · <b style="color:#7f8bd0">출장</b>(외근) · 기록누락=연회색 · 옅은 막대=<b>진행중</b>(아직 퇴근 전, 지금 기준 가정) · 막대는 <b>찐 퇴근</b> · 아래로 길수록 <b>야근</b> · 24h 아래=<b>익일 퇴근</b>
       </p>
     </div>
       </div><!-- #dash-timeinout -->
@@ -416,18 +460,25 @@
         <div class="card">
           <h2>얼마나 남았는지</h2>
           <div class="kpis" id="lv-kpis"></div>
+          <p style="color:#c07d13;font-size:12.5px;margin:12px 0 0;font-weight:600" id="lv-pace"></p>
         </div>
         <div class="card" style="margin-top:16px">
           <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <span>언제 썼는지</span><span style="font-size:13px;font-weight:600;color:var(--muted)" id="lv-count"></span>
+            <span id="lv-cal-title">연간 달력</span><span style="font-size:13px;font-weight:600;color:var(--muted)" id="lv-cal-sum"></span>
           </h2>
-          <div class="bz-wrap">
-            <table class="bz-table" id="lv-hist-table">
-              <thead><tr><th>날짜</th><th>구분</th><th style="text-align:right">일수</th></tr></thead>
-              <tbody id="lv-hist-body"></tbody>
-            </table>
-          </div>
-          <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 개인 페이지 기준(본인 것만) · 이 해에 쓴 연차 전체.</p>
+          <div class="yc-legend" id="lv-legend" style="margin:0 0 16px"></div>
+          <div class="yc-grid" id="lv-cal"></div>
+          <p style="color:var(--muted);font-size:12px;margin:16px 0 0">타임인아웃 개인 페이지 기준(본인 것만) · 이 해에 쓴 휴가 전체.</p>
+        </div>
+      </div>
+      <div id="dash-yagun-evidence" style="display:none">
+        <div class="card">
+          <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>증빙 이미지</span><span style="font-size:13px;font-weight:600;color:var(--muted)" id="ye-count"></span>
+          </h2>
+          <img id="ye-img" style="width:100%;border-radius:10px;border:1px solid #e7ebf3;margin-top:10px" />
+          <div id="ye-skipped" style="margin-top:12px"></div>
+          <button type="button" id="ye-again" class="icon-btn" style="width:auto;padding:6px 12px;gap:4px;color:#5a6172;font-size:12.5px;font-weight:600;margin-top:12px">↺ 다른 항목으로 다시 만들기</button>
         </div>
       </div>
       <div id="dash-correction" style="display:none">
@@ -523,7 +574,10 @@ const RECIPES = [
     brand: '· 야근택시 일괄 결의 (2개 서비스 연동)', desc: '심야 택시 미결의를 뽑고, <b>타임인아웃 야근 기록</b>을 증빙 이미지로 자동 첨부해 <b>일괄 상신</b>합니다.',
     endpoint: '/api/yagun/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
     resultUrl: (d) => `webwing · 야근택시 결의 · ${d.month}`, resultCap: '✓ 야근택시 대상' },
-  { id: 'yasik', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%8D%B1%3C/text%3E%3C/svg%3E", label: '야근식비 자동결의', sub: '혼자 식대 → 야근/조식 인정', services: ['timeinout', 'bizplay'],
+  { id: 'yagun-evidence', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E", label: '야근·휴일근무 택시비 증빙 만들기', sub: '날짜·금액 직접 입력 → 증빙 이미지 1장', services: ['timeinout'], custom: 'yagun-evidence',
+    brand: '· 야근·휴일근무 택시비 증빙 이미지', desc: '미결의 목록에 없거나 직접 정리하고 싶을 때 — <b>택시 이용 날짜·시간·금액</b>만 입력하면 <b>타임인아웃 실제 출퇴근 기록</b>과 매칭해 증빙 표 이미지 1장을 만들어줍니다. (상신은 안 하고 이미지만)',
+    loginUrl: 'user.timeinout.kr', resultUrl: (d) => `webwing · 야근·휴일근무 증빙 · ${d.matched}건`, resultCap: '✓ 증빙 이미지' },
+  { id: 'yasik', icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ctext y='32' font-size='30'%3E%F0%9F%8D%B1%3C/text%3E%3C/svg%3E", label: '개인 야근식비 자동결의', sub: '혼자 식대 → 야근/조식 인정', services: ['timeinout', 'bizplay'],
     brand: '· 야근식비 일괄 결의 (2개 서비스 연동)', desc: '혼자 먹은 <b>1인 식대(13,000 이내)</b>를 뽑고, <b>타임인아웃 근태</b>로 저녁=그날 야근 / 조식=출근<08:00 인정건만 <b>일괄 상신</b>합니다.',
     endpoint: '/api/yasik/stream', creds: 'bizplay', loginUrl: 'bizplay.co.kr',
     resultUrl: (d) => `webwing · 야근식비 결의 · ${d.month}`, resultCap: '✓ 야근식비 대상' },
@@ -540,15 +594,48 @@ const RECIPES = [
     endpoint: '/api/leaves/mine/stream', creds: 'timeinout', loginUrl: 'user.timeinout.kr',
     resultUrl: (d) => `webwing · 연차 현황(개인) · ${d.month}`, resultCap: '✓ 연차 현황(개인)' },
 ];
+RECIPES.forEach(r => r.company ||= 'madrascheck'); // 기존 레시피는 전부 마드라스체크 소속
+
+const COMPANIES = [
+  { id: 'madrascheck', name: '마드라스체크' },
+  { id: 'goldenpig', name: '금돼지식당' },
+];
+let activeCompany = localStorage.getItem('webwing-company') || COMPANIES[0].id;
+if (!COMPANIES.some(c => c.id === activeCompany)) activeCompany = COMPANIES[0].id;
 const SVC = { timeinout: '/icons/timeinout.png', bizplay: '/icons/bizplay.png', flow: '/icons/flow.ico' };
 const SVC_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'flow.team' };
+const EMPTY_RECIPE = { id: '__empty__', label: '등록된 자동화가 없어요', sub: '', desc: '이 회사에는 아직 자동화가 없어요. 레시피를 하나씩 추가해 주세요.', services: [], icon: '/icons/timeinout.png', loginUrl: '' };
 let activeRecipe = RECIPES[0];
 let accounts = {}; // 계정 저장 상태 (서버에서 마스킹된 상태만)
 
 let userRecipes = [];   // 등록된 자동화(사용자 규칙)에서 동적 생성
-const allRecipes = () => [...RECIPES, ...userRecipes];
+const allRecipes = () => [...RECIPES, ...userRecipes].filter(r => (r.company || activeCompany) === activeCompany);
+function renderCompanySel() {
+  $('companySel').innerHTML = COMPANIES.map(c => `<option value="${c.id}" ${c.id === activeCompany ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+}
+function switchCompany(id) {
+  if (id === activeCompany) return;
+  activeCompany = id;
+  localStorage.setItem('webwing-company', id);
+  renderCompanySel();
+  accounts = {};
+  loadAccounts().then(() => {
+    renderRecipes(); updateAcctChip();
+    renderAccountList();
+    if (activeAccount) selectAccount(activeAccount);
+  });
+  activeRecipe = allRecipes()[0] || EMPTY_RECIPE;
+  renderRecipes();
+  selectRecipe(activeRecipe.id);
+}
+$('companySel').addEventListener('change', (e) => switchCompany(e.target.value));
 function renderRecipes() {
-  $('recipeList').innerHTML = allRecipes().map(r => `
+  const list = allRecipes();
+  if (!list.length) {
+    $('recipeList').innerHTML = `<div style="padding:20px 16px;color:#9aa1b4;font-size:13px;line-height:1.6">아직 등록된 자동화가 없어요<br>레시피를 하나씩 추가해 주세요</div>`;
+    return;
+  }
+  $('recipeList').innerHTML = list.map(r => `
     <div class="recipe ${r === activeRecipe ? 'on' : ''}" data-id="${r.id}">
       <div style="flex:1;min-width:0">
         <div class="rt">${esc(r.label)}${r.userRule ? ' <span style="font-size:10px;color:#8b5cf6;font-weight:700;vertical-align:middle">등록</span>' : ''}</div><div class="rs">${esc(r.sub)}</div>
@@ -561,7 +648,7 @@ function renderRecipes() {
   }));
 }
 function selectRecipe(id) {
-  activeRecipe = allRecipes().find(r => r.id === id) || RECIPES[0];
+  activeRecipe = allRecipes().find(r => r.id === id) || allRecipes()[0] || EMPTY_RECIPE;
   renderRecipes();
   resetToLogin();
   // 서비스 2개 이상 쓰는 자동화는 "앱 + 앱" — 각 아이콘 크기·패딩 그대로, 나란히
@@ -571,6 +658,11 @@ function selectRecipe(id) {
     : `<span class="app-ic"><img src="${esc(activeRecipe.icon)}" alt=""></span>`;
   $('lp-title').textContent = activeRecipe.label;
   $('lp-subline').innerHTML = activeRecipe.desc;
+  const isCustomEvidence = activeRecipe.custom === 'yagun-evidence';
+  $('month').style.display = isCustomEvidence ? 'none' : '';
+  $('go').style.display = isCustomEvidence ? 'none' : '';
+  $('lp-evidence').style.display = isCustomEvidence ? 'block' : 'none';
+  if (isCustomEvidence) { $('ev-rows').innerHTML = ''; addEvRow(); }
   updateAcctChip();
 }
 // 등록된 자동화(사용자 규칙) → 동적 레시피
@@ -595,7 +687,7 @@ async function deleteRecipe(id) {
   const r = allRecipes().find(x => x.id === id);
   if (!(await uiConfirm({ title: '자동화 삭제', ok: '삭제', danger: true, body: `등록 자동화 <b>${esc(r ? r.label : id)}</b>를 삭제합니다.<br><span class="m">미결의 자동분류 규칙도 함께 사라져요. (상신된 건은 영향 없음)</span>` }))) return;
   await fetch('/api/rules/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
-  if (activeRecipe.id === id) activeRecipe = RECIPES[0];
+  if (activeRecipe.id === id) activeRecipe = allRecipes()[0] || EMPTY_RECIPE;
   await loadUserRecipes();
   selectRecipe(activeRecipe.id);
 }
@@ -609,7 +701,7 @@ function updateAcctChip() {
   }).join('');
   const missing = svcs.filter(s => !(accounts[s] || {}).saved);
   $('lp-acct').innerHTML = rows + (missing.length ? `<div style="margin-top:5px;color:#c07d13">→ 상단 <b>계정 연결</b> 탭에서 등록하세요</div>` : '');
-  $('go').disabled = missing.length > 0;
+  $('go').disabled = missing.length > 0 || activeRecipe.id === '__empty__';
 }
 function resetToLogin() {
   slides = []; curData = null; curIdx = 0; dashRendered = false; hasResult = false;
@@ -686,11 +778,12 @@ function ensureAccounts() {
   if (missing.length) { $('status').textContent = `⚠ 계정 연결에서 ${missing.map(s => SVC_NAME[s]).join(', ')} 등록 필요`; switchTab('accounts'); return false; }
   return true;
 }
+const scopedKey = (id) => `${activeCompany}__${id}`;
 async function load() {
   if (!ensureAccounts()) return;
   const month = $('month').value;
   $('status').textContent = '';
-  await streamRun(activeRecipe.endpoint, { mode: 'employee', month, patternId: activeRecipe.patternId, historyKey: activeRecipe.id },   // 자격증명은 서버 .env 사용
+  await streamRun(activeRecipe.endpoint, { mode: 'employee', month, patternId: activeRecipe.patternId, company: activeCompany, historyKey: scopedKey(activeRecipe.id) },   // 자격증명은 서버가 회사별로 저장한 값 사용
     { urlText: activeRecipe.loginUrl, capText: '자동화 진행 중 (단계별 실시간 표시)', loadingText: `${activeRecipe.brand} 접속 중…` });
 }
 
@@ -698,7 +791,7 @@ async function load() {
 async function runSubmit(patternId, yagunMode) {
   if (!ensureAccounts()) return;
   const month = $('month').value;
-  await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode, historyKey: `bizplay-submit-${patternId}` },
+  await streamRun('/api/bizplay/submit/stream', { month, patternId, yagunMode, company: activeCompany, historyKey: scopedKey(`bizplay-submit-${patternId}`) },
     { urlText: 'approval.appplay.co.kr', capText: '결의서 작성 → 용도 → 결재요청 → 결재선 확인', loadingText: '실제 상신 처리 중… (대기건 묶어 결재 1건)' });
 }
 
@@ -756,8 +849,9 @@ function onResult(d) {
 }
 
 function render(d) {
-  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction', 'dash-company-leaves', 'dash-leave-personal']) $(id).style.display = 'none';
-  if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
+  for (const id of ['dash-timeinout', 'dash-bizplay', 'dash-bizplay-submit', 'dash-yagun', 'dash-yasik', 'dash-pattern', 'dash-correction', 'dash-company-leaves', 'dash-leave-personal', 'dash-yagun-evidence']) $(id).style.display = 'none';
+  if (d.recipe === 'yagun-evidence') { $('dash-yagun-evidence').style.display = 'block'; renderYagunEvidence(d); }
+  else if (d.recipe === 'bizplay') { $('dash-bizplay').style.display = 'block'; renderBizplay(d); }
   else if (d.recipe === 'bizplay-submit') { $('dash-bizplay-submit').style.display = 'block'; renderBizplaySubmit(d); }
   else if (d.recipe === 'yagun') { $('dash-yagun').style.display = 'block'; renderYagun(d); }
   else if (d.recipe === 'yasik') { $('dash-yasik').style.display = 'block'; renderYasik(d); }
@@ -1011,17 +1105,162 @@ function renderPattern(d) {
   $('pt-go').disabled = !s.count;
 }
 // 연차 현황(개인용) — "얼마나 남았고"(잔여)와 "언제 썼는지"(사용이력)를 카드째 분리해서 딱딱 보여줌
+// 만료일까지 남은 개월(이번달 포함) · 월 페이스 추천용
+function monthsUntil(expireDate) {
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const exp = new Date(expireDate + 'T00:00:00Z');
+  const months = (exp.getUTCFullYear() - now.getUTCFullYear()) * 12 + (exp.getUTCMonth() - now.getUTCMonth()) + 1;
+  return Math.max(1, months);
+}
+function renderYagunEvidence(d) {
+  lastData = d;
+  $('ye-count').textContent = `${d.matched}건 매칭` + ((d.skipped || []).length ? ` · ${d.skipped.length}건 제외` : '');
+  $('ye-img').src = d.image;
+  const sk = d.skipped || [];
+  $('ye-skipped').innerHTML = sk.length ? `<p style="color:#c07d13;font-size:12.5px;font-weight:600;margin-bottom:6px">제외된 항목</p>` +
+    sk.map(s => `<div style="font-size:12.5px;color:#8a3d3d;padding:4px 0">· ${esc(s.date)} ${esc(s.time || '')} ${(s.amount || 0).toLocaleString('en-US')}원 — ${esc(s.reason)}</div>`).join('') : '';
+}
+// ── 야근·휴일근무 증빙 이미지 직접 만들기: 행 추가형 폼 ──
+function evRowHtml() {
+  return `<div class="ev-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+    <input type="date" class="ev-date" style="flex:1.3;min-width:0" />
+    <input type="time" class="ev-time" style="flex:1;min-width:0" />
+    <input type="number" class="ev-amount" placeholder="금액" style="flex:1;min-width:0" />
+    <button type="button" class="ev-del icon-btn" style="width:26px;height:26px;flex:none;color:#c1c6d2">✕</button>
+  </div>`;
+}
+function addEvRow() {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = evRowHtml();
+  const row = wrap.firstElementChild;
+  row.querySelector('.ev-del').addEventListener('click', () => {
+    if ($('ev-rows').children.length > 1) row.remove();
+  });
+  $('ev-rows').appendChild(row);
+}
+$('ev-add-row').addEventListener('click', addEvRow);
+$('ye-again').addEventListener('click', () => { resetToLogin(); });
+$('ev-generate').addEventListener('click', async () => {
+  if (!ensureAccounts()) return;
+  const items = [...$('ev-rows').querySelectorAll('.ev-row')].map(row => ({
+    date: row.querySelector('.ev-date').value,
+    time: row.querySelector('.ev-time').value,
+    amount: row.querySelector('.ev-amount').value,
+  })).filter(it => it.date && it.amount);
+  if (!items.length) { $('status').textContent = '⚠ 날짜·금액을 입력하세요'; return; }
+  $('ev-generate').disabled = true;
+  $('status').textContent = '';
+  $('player').classList.add('loading');
+  $('p-scrim').style.display = 'flex';
+  $('p-loading').textContent = '타임인아웃 기록과 매칭해 증빙 이미지 만드는 중…';
+  try {
+    const r = await fetch('/api/yagun-evidence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, company: activeCompany }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '생성 실패');
+    onResult({ recipe: 'yagun-evidence', ...j });
+  } catch (e) {
+    $('p-scrim').style.display = 'flex';
+    $('p-loading').textContent = '❌ ' + e.message;
+    $('status').textContent = '❌ ' + e.message;
+  } finally {
+    $('ev-generate').disabled = false;
+    $('player').classList.remove('loading');
+  }
+});
 function renderLeavePersonal(d) {
   lastData = d;
   const bal = d.leaveBalance || [];
   $('lv-kpis').innerHTML = bal.length ? bal.map(b => `
-    <div class="kpi"><div class="l">${esc(b.type)} · 남은 연차</div><div class="v">${b.remaining}<span style="font-size:14px;color:var(--muted);font-weight:600"> / ${b.total}일</span></div><div class="l">만료 ${esc(b.expire)}</div></div>`).join('')
+    <div class="kpi"><div class="l">${esc(shortLeaveType(b.type))} · 남은 연차</div><div class="v">${b.remaining}<span style="font-size:14px;color:var(--muted);font-weight:600"> / ${b.total}일</span></div><div class="l">만료 ${esc(b.expire)}</div></div>`).join('')
     : '<div class="kpi"><div class="l">잔여 정보 없음</div><div class="v">-</div></div>';
+  // 페이스 추천: 잔여일수를 만료까지 남은 개월로 나눠서 "월 몇 일씩 써야 다 씀"
+  $('lv-pace').innerHTML = bal.filter(b => b.remaining > 0).map(b => {
+    const months = monthsUntil(b.expire);
+    const pace = (b.remaining / months).toFixed(1);
+    return `⏳ ${esc(shortLeaveType(b.type))} 만료까지 ${months}개월 남음 · 월 <b>${pace}일</b>씩 쓰면 소진돼요`;
+  }).join('<br>');
+
   const hist = d.leaveHistory || [];
-  $('lv-count').textContent = hist.length + '건';
-  $('lv-hist-body').innerHTML = hist.map(h => `<tr>
-    <td>${esc(h.date)}${h.dow ? `(${esc(h.dow)})` : ''}</td><td>${esc(h.detail)}</td><td style="text-align:right">${h.days}</td></tr>`).join('')
-    || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:20px">이 해에 쓴 연차가 없어요</td></tr>';
+  const year = (d.month || '').split('-')[0] || String(new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear());
+  renderLeaveYearCalendar(year, hist, d.holidays || {});
+}
+// 휴가 유형별 색 — 연차는 고정(파랑), 나머지는 등장 순서대로 팔레트에서 배정
+const LEAVE_COLORS = ['#3b6fe0', '#12a150', '#8b5cf6', '#e08b1a', '#0ea5b7', '#d9488a'];
+const WORKERS_DAY = '근로자의 날';
+function leaveColorMap(hist) {
+  const map = { '연차휴가': '#3b6fe0' };
+  let i = 1;
+  for (const h of hist) if (!map[h.type]) map[h.type] = LEAVE_COLORS[i++ % LEAVE_COLORS.length];
+  return map;
+}
+// 2026년 전체를 12개 미니 달력으로 — 공휴일 빨강, 휴가 쓴 날은 사용일수 비율만큼(1/1·1/2·1/4) 아래에서 채움
+function renderLeaveYearCalendar(year, hist, holidays) {
+  const colors = leaveColorMap(hist);
+  const byDate = {};
+  for (const h of hist) {
+    const c = byDate[h.date] = byDate[h.date] || { days: 0, parts: [] };
+    c.days = +((c.days + h.days).toFixed(2));
+    c.parts.push(h);
+  }
+  const todayStr = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const total = +(hist.reduce((s, h) => s + h.days, 0).toFixed(2));
+  $('lv-cal-title').textContent = `${year}년 달력`;
+  $('lv-cal-sum').textContent = `총 ${total}일 사용`;
+
+  const months = Array.from({ length: 12 }, (_, k) => k + 1);
+  $('lv-cal').innerHTML = months.map(m => {
+    const mo = `${year}-${String(m).padStart(2, '0')}`;
+    const daysInMonth = new Date(Date.UTC(+year, m, 0)).getUTCDate();
+    const firstDow = new Date(Date.UTC(+year, m - 1, 1)).getUTCDay();
+    let sum = 0;
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) cells.push('<div class="yc-cell pad"></div>');
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${mo}-${String(day).padStart(2, '0')}`;
+      const dow = new Date(Date.UTC(+year, m - 1, day)).getUTCDay();
+      const hol = holidays[dateStr];
+      const use = byDate[dateStr];
+      if (use) sum = +((sum + use.days).toFixed(2));
+      const isWorkersDay = hol === WORKERS_DAY;   // 근로자의 날 = 법정공휴일 아님(유급휴일) → 색 구분
+      const cls = ['yc-cell'];
+      if (dow === 0) cls.push('sun'); else if (dow === 6) cls.push('sat');
+      if (isWorkersDay) cls.push('wday'); else if (hol || dow === 0) cls.push('hol');
+      if (use) { cls.push('used'); if (use.days >= 1) cls.push('full'); }
+      if (dateStr === todayStr) cls.push('today');
+      // 사용일수는 투명도로: 종일 1 · 반차 0.5 · 반반차 0.25 (여러 건이면 합산, 최대 1)
+      let fill = '';
+      if (use) {
+        const op = Math.min(1, use.days);
+        const color = colors[use.parts[0].type] || LEAVE_COLORS[0];
+        fill = `<span class="yc-fill" style="background:${color};opacity:${op}"></span>`;
+      }
+      const tip = [dateStr + `(${CAL_DOW[dow]})`, hol || '', use ? use.parts.map(p => `${shortLeaveType(p.type)} ${p.detail} ${p.days}일`).join(' / ') : ''].filter(Boolean).join(' · ');
+      cells.push(`<div class="${cls.join(' ')}" title="${esc(tip)}">${fill}<span class="n">${day}</span></div>`);
+    }
+    // 그 달 공휴일 이름 목록 — 셀이 작아 날짜칸에 못 넣으니 달력 아래에 따로
+    const holList = Object.entries(holidays).filter(([dt]) => dt.startsWith(mo))
+      .map(([dt, name]) => `<div class="${name === WORKERS_DAY ? 'w' : ''}" title="${esc(name)}"><b>${+dt.slice(8)}일</b>${esc(name)}${name === WORKERS_DAY ? ' (유급휴일)' : ''}</div>`).join('');
+    return `<div class="yc-month">
+      <div class="yc-month-head"><span class="yc-month-name">${m}월</span><span class="yc-month-sum${sum ? '' : ' zero'}">${sum ? sum + '일' : '-'}</span></div>
+      <div class="yc-days">
+        ${CAL_DOW.map((n, i) => `<div class="yc-dow${i === 0 ? ' sun' : ''}">${n}</div>`).join('')}
+        ${cells.join('')}
+      </div>
+      <div class="yc-hols">${holList}</div>
+    </div>`;
+  }).join('');
+
+  // 범례(카탈로그): 유형은 색, 사용일수는 투명도
+  const used = [...new Set(hist.map(h => h.type))];
+  const base = colors[used[0]] || LEAVE_COLORS[0];
+  $('lv-legend').innerHTML =
+    [[1, '연차 (종일)'], [0.5, '반차'], [0.25, '반반차']].map(([op, label]) =>
+      `<span><i style="background:${base};opacity:${op}"></i>${label}</span>`).join('')
+    + (used.length > 1 ? '<span class="sep"></span>' + used.slice(1).map(t =>
+        `<span><i style="background:${colors[t]}"></i>${esc(shortLeaveType(t))}</span>`).join('') : '')
+    + '<span class="sep"></span>'
+    + '<span><i style="background:#fdeeee;box-shadow:inset 0 0 0 1px #f2d0d0"></i>공휴일 · 일요일</span>'
+    + `<span><i style="background:#fdf5e6;box-shadow:inset 0 0 0 1px #ecd9ae"></i>${WORKERS_DAY}(유급휴일)</span>`;
 }
 function renderTimeinout(d) {
   lastData = d;
@@ -1033,13 +1272,15 @@ function renderTimeinout(d) {
   const exclude = $('excludeCorrected').checked;
   const corrDays = d.days.filter(x => x.corrected);              // 정정 신청·승인된 날 (누락 여부 무관)
   const missDays = d.days.filter(x => x.missing && !x.corrected); // 정정 신청한 날은 누락 목록에서 제외
-  let ot = 0, hol = 0;
+  let ot = 0, hol = 0, otProj = 0;
   for (const x of d.days) {
     if (x.missing) continue;                   // 누락/의심 → 모든 합계 제외
     if (x.corrected && exclude) continue;      // 정정 제외 ON → 합계 제외
     hol += x.holMin;
     ot += x.otMin;
+    if (x.projected) otProj += x.otMin;        // 오늘 진행중(아직 퇴근 전) 몫 → 게이지에서 따로 토막냄
   }
+  const otConfirmed = ot - otProj;
   const over52 = ot > 52 * 60;
   $('k-ot').textContent = fmtMin(ot);
   const lim = $('k-limit');
@@ -1057,13 +1298,18 @@ function renderTimeinout(d) {
   const limitMin = 52 * 60;
   const scaleMax = Math.max(limitMin, ot) * 1.12;
   const fillPct = Math.min(100, ot / scaleMax * 100);
+  const confirmedPct = Math.min(100, otConfirmed / scaleMax * 100);
   const headStartPct = fillPct;
   const headWidthPct = ot < limitMin ? (limitMin - ot) / scaleMax * 100 : 0;
-  $('ot-fill').style.width = fillPct + '%';
+  $('ot-fill').style.width = confirmedPct + '%';
   $('ot-fill').className = 'gauge-fill' + (over52 ? ' over' : '');
+  $('ot-fill-proj').style.left = confirmedPct + '%';
+  $('ot-fill-proj').style.width = (fillPct - confirmedPct) + '%';
+  $('ot-fill-proj').className = 'gauge-fill-proj' + (over52 ? ' over' : '');
   $('ot-headroom').style.left = headStartPct + '%';
   $('ot-headroom').style.width = headWidthPct + '%';
   $('ot-limit-line').style.left = (limitMin / scaleMax * 100) + '%';
+  $('ot-pay-line').style.left = (30 * 60 / scaleMax * 100) + '%'; // 30h부터 수당 발생 기준선
   const remainMin = Math.max(0, limitMin - ot);
   const pace = $('k-pace');
   if (over52) {
@@ -1134,29 +1380,38 @@ function renderTimeinout(d) {
     // 출장·외근(펀치 없음) → '출장' 블록 09~18 (기록누락과 구분)
     if (x.isTrip && x.inH == null) return { ...empty, base:9, trip:9 };
     return seg(x.inH, x.outH);
-  });
+  }).map((s, i) => ({ ...s, projected: d.days[i].projected })); // 오늘 진행중(가정 계산) 표시용
   const inT = d.days.map(x => x.inText), outT = d.days.map(x => x.outText);
   const sus = d.days.map(x => x.suspect);
   const yMax = Math.max(24, Math.ceil(Math.max(...d.days.map(x => x.outH || 0)) + 1));
   const T = 'rgba(0,0,0,0)';
   // 스택 세그먼트 공통 스타일: 2px 서피스 갭 + 둥근 끝 (까리하게)
   const SEG = { borderColor:'#ffffff', borderWidth:0, borderRadius:2, borderSkipped:false };
+  // 오늘 진행중(아직 퇴근 전, "지금 퇴근한다면" 가정 계산)인 날은 막대를 옅게(80%) — 확정 아님 표시
+  const withAlpha = (color, mult) => {
+    const hex = /^#([0-9a-f]{6})$/i.exec(color);
+    if (hex) { const n = parseInt(hex[1], 16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${mult})`; }
+    const rgba = /^rgba\(([\d.]+),([\d.]+),([\d.]+),([\d.]+)\)$/.exec(color.replace(/\s/g, ''));
+    if (rgba) return `rgba(${rgba[1]},${rgba[2]},${rgba[3]},${(+rgba[4] * mult).toFixed(3)})`;
+    return color;
+  };
+  const fade = (color) => (ctx) => S[ctx.dataIndex]?.projected ? withAlpha(color, 0.8) : color;
   if (clock) clock.destroy();
   clock = new Chart($('clock'), {
     type:'bar',
     data:{ labels, datasets:[
       { label:'_base', data:S.map(s=>s.base), backgroundColor:T, stack:'t', borderWidth:0 },
-      { label:'근무', data:S.map(s=>s.am), backgroundColor:'#4b62d6', stack:'t', ...SEG },
-      { label:'점심(1h)', data:S.map(s=>s.lunch), backgroundColor:'rgba(75,98,214,0.22)', stack:'t', ...SEG },
-      { label:'_근무2', data:S.map(s=>s.pm), backgroundColor:'#4b62d6', stack:'t', ...SEG },
-      { label:'저녁(30m)', data:S.map(s=>s.dinner), backgroundColor:'rgba(75,98,214,0.16)', stack:'t', ...SEG },
-      { label:'야근', data:S.map(s=>s.ot), backgroundColor:'#e5544c', stack:'t', ...SEG },
-      { label:'휴일근무', data:S.map(s=>s.hol), backgroundColor:'#c2362b', stack:'t', ...SEG },
-      { label:'휴가', data:S.map(s=>s.leave), backgroundColor:'#2f9d70', stack:'t', ...SEG },
-      { label:'공휴일', data:S.map(s=>s.hday||0), backgroundColor:'#ecdca9', stack:'t', ...SEG },
-      { label:'출장', data:S.map(s=>s.trip||0), backgroundColor:'#9aa8e0', stack:'t', ...SEG },
-      { label:'정정', data:S.map(s=>s.corr), backgroundColor:'#1f93b0', stack:'t', ...SEG },
-      { label:'기록누락', data:S.map(s=>s.miss), backgroundColor:'#eceef4', stack:'t', ...SEG },
+      { label:'근무', data:S.map(s=>s.am), backgroundColor:fade('#4b62d6'), stack:'t', ...SEG },
+      { label:'점심(1h)', data:S.map(s=>s.lunch), backgroundColor:fade('rgba(75,98,214,0.22)'), stack:'t', ...SEG },
+      { label:'_근무2', data:S.map(s=>s.pm), backgroundColor:fade('#4b62d6'), stack:'t', ...SEG },
+      { label:'저녁(30m)', data:S.map(s=>s.dinner), backgroundColor:fade('rgba(75,98,214,0.16)'), stack:'t', ...SEG },
+      { label:'야근', data:S.map(s=>s.ot), backgroundColor:fade('#e5544c'), stack:'t', ...SEG },
+      { label:'휴일근무', data:S.map(s=>s.hol), backgroundColor:fade('#c2362b'), stack:'t', ...SEG },
+      { label:'휴가', data:S.map(s=>s.leave), backgroundColor:fade('#2f9d70'), stack:'t', ...SEG },
+      { label:'공휴일', data:S.map(s=>s.hday||0), backgroundColor:fade('#ecdca9'), stack:'t', ...SEG },
+      { label:'출장', data:S.map(s=>s.trip||0), backgroundColor:fade('#9aa8e0'), stack:'t', ...SEG },
+      { label:'정정', data:S.map(s=>s.corr), backgroundColor:fade('#1f93b0'), stack:'t', ...SEG },
+      { label:'기록누락', data:S.map(s=>s.miss), backgroundColor:fade('#eceef4'), stack:'t', ...SEG },
     ]},
     options:{ animation:false,
       datasets:{ bar:{ barPercentage:0.82, categoryPercentage:0.6 } },
@@ -1181,7 +1436,7 @@ function renderTimeinout(d) {
               if (holDay[k]) return `🏖 ${status[k] || '공휴일'}`;
               if (tripDay[k]) return `✈ ${tripLabel[k]}`;
               if (isLv[k]) return `휴가 · ${lvTxt[k]}`;
-              return `${inT[k]} ~ ${outT[k]}`; },
+              return `${inT[k]} ~ ${outT[k]}${S[k]?.projected ? ' (진행중 · 지금 기준 가정)' : ''}`; },
             label:(i)=>{ const L = i.dataset.label;
               if (L === '휴가') return lvTxt[i.dataIndex];
               if (L === '정정') { const k = i.dataIndex, x = d.days[k];
@@ -1197,6 +1452,7 @@ function renderTimeinout(d) {
   });
 }
 
+$('brand-home').addEventListener('click', () => location.reload());
 $('go').addEventListener('click', load);
 $('month').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('go').disabled) load(); });
 $('excludeCorrected').addEventListener('change', () => { if (lastData) render(lastData); });
@@ -1259,20 +1515,21 @@ function selectAccount(key) {
 $('pa-save').addEventListener('click', async () => {
   const a = ACCT_DEFS.find(x => x.key === activeAccount); if (!a) return;
   const wasSaved = (accounts[a.key] || {}).saved;
-  const body = { service: a.key };
+  const body = { service: a.key, company: activeCompany };
   $('pa-fields').querySelectorAll('input[data-f]').forEach(i => { const v = i.value.trim(); if (v) body[i.dataset.f] = v; });
   if (!wasSaved) { // 최초 등록: 필수 입력 확인
     const need = a.fields.map(([f]) => f).filter(f => !body[f]);
     if (need.length) { $('pa-status').innerHTML = `<span class="badge no">필요</span> <span style="color:#c07d13">${esc(a.fields.map(([, ph]) => ph.split(' (')[0]).join(', '))} 입력</span>`; return; }
   }
-  $('pa-save').disabled = true; $('pa-status').innerHTML = '<span style="color:#8a93a6">처리 중…</span>';
+  $('pa-save').disabled = true; $('pa-status').innerHTML = '<span style="color:#8a93a6">실제 로그인 확인 중…</span>';
   try {
     const r = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error();
-    accounts = await (await fetch('/api/accounts')).json();
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || '확인 실패');
+    await loadAccounts();
     renderAccountList(); updateAcctChip(); selectAccount(activeAccount);  // 등록 → 수정, 인증완료로 갱신
     $('pa-status').innerHTML = '<span class="badge ok">인증완료</span> <span style="color:#17915a">' + (wasSaved ? '수정됐어요' : '등록됐어요') + '</span>';
-  } catch { $('pa-status').innerHTML = '<span class="badge no" style="background:#fde8e8;color:#d3455b">실패</span> <span style="color:#d3455b">다시 시도</span>'; }
+  } catch (e) { $('pa-status').innerHTML = `<span class="badge no" style="background:#fde8e8;color:#d3455b">실패</span> <span style="color:#d3455b">${esc(e.message || '다시 시도')}</span>`; }
   finally { $('pa-save').disabled = false; }
 });
 // 스냅샷 앞뒤 탐색 (끝(결과)에서도 이전 프레임으로)
@@ -1287,6 +1544,11 @@ function fmtSavedAt(iso) {
   const d = new Date(iso);
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fmtDuration(ms) {
+  if (!ms) return '-';
+  const s = ms / 1000;
+  return s < 60 ? `${s.toFixed(1)}초` : `${Math.floor(s / 60)}분 ${Math.round(s % 60)}초`;
 }
 // 자동화 종류별 "간단한 대표 데이터" 한 줄
 function historyStatLine(id, s) {
@@ -1308,18 +1570,19 @@ async function openHistoryPanel() {
   $('history-panel').style.display = 'flex';
   $('history-scrim').style.display = 'block';
   try {
-    const res = await fetch(`/api/history/${encodeURIComponent(activeRecipe.id)}`);
+    const res = await fetch(`/api/history/${encodeURIComponent(scopedKey(activeRecipe.id))}`);
     const { items } = await res.json();
     list.innerHTML = items.length ? items.map(it => `
       <div class="hist-item" data-id="${esc(it.id)}">
         <div class="hi-top"><span>${esc(it.month || '')}</span><span>${esc(fmtSavedAt(it.savedAt))}</span></div>
         <div class="hi-stat">${esc(historyStatLine(activeRecipe.id, it.summary))}</div>
+        <div class="hi-dur">⏱ ${esc(fmtDuration(it.durationMs))}</div>
       </div>`).join('')
       : '<div class="hist-empty">저장된 이력이 없어요<br>자동화를 실행하면 여기 쌓여요</div>';
     list.querySelectorAll('.hist-item').forEach(el => {
       el.addEventListener('click', async () => {
         closeHistoryPanel();
-        const full = await (await fetch(`/api/history/${encodeURIComponent(activeRecipe.id)}/${el.dataset.id}`)).json();
+        const full = await (await fetch(`/api/history/${encodeURIComponent(scopedKey(activeRecipe.id))}/${el.dataset.id}`)).json();
         $('dash').style.display = 'none';
         $('player').style.display = 'flex';
         $('player').classList.remove('fade');
@@ -1414,7 +1677,7 @@ $('cr-go').addEventListener('click', async () => {
       + rows.map(r => `· ${esc(r.date)}  출근 ${esc(r.in)} · 퇴근 ${esc(r.out)}`).join('<br>')
       + `<br><br>결재선: 이학준(전략사업본부) · 수신참조 김용덕</span>`,
   }))) return;
-  await streamRun('/api/correction/submit/stream', { rows, historyKey: 'correction-submit' },
+  await streamRun('/api/correction/submit/stream', { rows, company: activeCompany, historyKey: scopedKey('correction-submit') },
     { urlText: 'user.timeinout.kr', capText: '출퇴근 정정 신청 상신 중 (단계별 실시간 표시)', loadingText: '타임인아웃 정정 신청 중…' });
 });
 
@@ -1457,11 +1720,16 @@ $('ys-go').addEventListener('click', async () => {
   runSubmit('p3');
 });
 
-// 초기화: 계정 상태 + 레시피 목록 + 계정관리 폼
+async function loadAccounts() {
+  try { accounts = await (await fetch(`/api/accounts?company=${encodeURIComponent(activeCompany)}`)).json(); } catch { accounts = {}; }
+}
+// 초기화: 회사 선택 + 계정 상태 + 레시피 목록 + 계정관리 폼
 (async () => {
-  try { accounts = await (await fetch('/api/accounts')).json(); } catch {}
+  renderCompanySel();
+  await loadAccounts();
   await loadUserRecipes();     // 등록된 자동화 → 사이드바 (renderRecipes 포함)
   renderAccountList();
+  activeRecipe = allRecipes()[0] || EMPTY_RECIPE;
   selectRecipe(activeRecipe.id);
 })();
 </script>

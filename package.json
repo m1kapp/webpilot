@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "timeinout": "node src/recipes/timeinout.mjs"
+    "timeinout": "node src/recipes/timeinout.mjs",
+    "ext:sync": "node scripts/ext-sync.mjs",
+    "ext:zip": "node scripts/ext-zip.mjs",
+    "ext:e2e": "node scripts/ext-e2e.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
