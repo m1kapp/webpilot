@@ -75,6 +75,12 @@ export async function clickOpensTab(tabId, clickFunc, args, opts) {
   return newId;
 }
 
+// 탭 안 프레임 목록 [{ frameId, url }]. 클릭 전후를 비교해 "앱이 어느 프레임에 떴나"를 가린다.
+export async function listFrames(tabId) {
+  const frames = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => []);
+  return (frames || []).map((f) => ({ frameId: f.frameId, url: f.url || '' }));
+}
+
 // tabId 안의 프레임 중 url에 needle이 든 프레임의 frameId(없으면 로드될 때까지 재시도).
 export async function findFrame(tabId, needle, { tries = 20, gap = 600 } = {}) {
   for (let i = 0; i < tries; i++) {

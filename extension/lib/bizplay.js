@@ -2,7 +2,7 @@
 // 타임인아웃 근태로 증빙 가능 여부를 판정한다. src/lib/bizplay.mjs의 getYagunTaxi/getYasik에 대응.
 // ⚠ 상신(일괄결의)은 제외 — 실제 경비 시스템에 쓰기라 실계정 검증 후. 여기선 조회·판정까지.
 // ⚠ 카드영수증은 런처→새 탭→eusr_9001 iframe 구조라 라이브 검증 필요.
-import { openTab, closeTab, evaluate, evaluateAllFrames, clickOpensTab, findFrame, evaluateFrame } from './tab.js';
+import { openTab, closeTab, evaluate, evaluateAllFrames, clickOpensTab, findFrame, listFrames, evaluateFrame } from './tab.js';
 import { getOvertime } from './overtime.js';
 import { isNight, isYasikMeal, yasikClass } from '../core/expense.js';
 import { yagunDateOf } from '../core/calendar.js';
@@ -43,7 +43,13 @@ function findCardReceipt() {
   return { url: location.href, count: found.length, items: found.slice(0, 6).map(desc), sample };
 }
 
-// 런처 → 카드영수증 앱(새 탭) → 데이터 iframe. 대상월로 날짜범위까지 세팅한 frame 참조 반환.
+// 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
+const hasPendingTable = (tabId, frameId) =>
+  evaluate(tabId, () => !!document.querySelector('#tableList') || /대기\s*\(\d+\)/.test(document.body?.innerText || ''),
+    undefined, { frameId }).catch(() => false);
+
+// 런처 → 카드영수증 앱(새 탭 또는 같은 페이지 iframe) → 데이터 프레임.
+// 대상월로 날짜범위까지 세팅한 frame 참조 반환.
 async function openCardApp(month, onProgress) {
   onProgress('비즈플레이 여는 중');
   const launcher = await openTab(`${HOST}/main_0003_01.act`);
@@ -66,6 +72,7 @@ async function openCardApp(month, onProgress) {
   // → window.open을 가로채 URL만 뽑고, 그 URL을 확장이 직접 chrome.tabs.create로 연다(팝업 차단 없음).
   //   사용자가 팝업 허용 등 아무 조작도 할 필요 없음.
   const beforeUrl = await evaluate(launcher, () => location.href);
+  const framesBefore = (await listFrames(launcher)).map((f) => `${f.frameId}|${f.url}`);
   // 아이콘이 어느 프레임에 있는지부터 찾는다. 포털이라 앱 목록이 iframe 안에 있을 수 있고,
   // 늦게 그려지기도 해서 몇 번 다시 본다.
   let iconFrame = null;
@@ -106,23 +113,41 @@ async function openCardApp(month, onProgress) {
     target.scrollIntoView({ block: 'center', inline: 'center' });
     const r = target.getBoundingClientRect();
     const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    const el = (at && target.contains(at)) ? at : target;
-    // click()만으로는 안 먹는 타일이 있다(mousedown·pointerup에 걸어 둔 경우). 전체 시퀀스를 흘려보낸다.
-    for (const type of ['pointerover', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    // 리스너가 타일(a)에 걸렸는지 안쪽 아이콘(img)에 걸렸는지 알 수 없다 — 둘 다 두드린다.
+    // click()만으로는 안 먹는 경우가 있어(mousedown·pointerup에 걸어 둔 경우) 전체 시퀀스를 흘려보낸다.
+    const targets = [...new Set([at && target.contains(at) ? at : null, box, target].filter(Boolean))];
+    for (const el of targets) {
+      for (const type of ['pointerover', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      if (typeof el.click === 'function') el.click();
     }
     setTimeout(() => finish(null), 3000); // window.open 안 쓰면 null (아래에서 같은탭 이동/새탭 폴백)
   }), undefined, { world: 'MAIN', frameId: iconFrame });
 
   let appTabId = null;
+  let inlineFrame = null;   // 앱이 런처 페이지 안 iframe에 뜬 경우 그 프레임
   if (openedUrl) {
     // 가로챈 URL을 확장이 직접 연다 (팝업 차단 회피)
     appTabId = await openTab(openedUrl);
   } else {
+    // 폴백0: 앱이 같은 페이지의 iframe에 뜨는 구조. 새 탭도 window.open도 아니라
+    // 주소만 봐서는 아무 일도 안 일어난 것처럼 보인다. 프레임이 새로 채워졌는지로 가린다.
+    for (let i = 0; i < 12 && inlineFrame == null; i++) {
+      await sleep(800);
+      const now = await listFrames(launcher);
+      const fresh = now.find((f) => f.url && !/^about:/.test(f.url)
+        && !framesBefore.includes(`${f.frameId}|${f.url}`) && f.frameId !== 0);
+      if (fresh) inlineFrame = fresh;
+    }
+    if (inlineFrame) appTabId = launcher;
+
     // 폴백1: 클릭이 같은 탭을 앱으로 이동시켰는지
-    await sleep(1200);
-    const nowUrl = await evaluate(launcher, () => location.href).catch(() => beforeUrl);
-    if (nowUrl && nowUrl !== beforeUrl && !/main_0003/.test(nowUrl)) appTabId = launcher;
+    if (appTabId == null) {
+      await sleep(1200);
+      const nowUrl = await evaluate(launcher, () => location.href).catch(() => beforeUrl);
+      if (nowUrl && nowUrl !== beforeUrl && !/main_0003/.test(nowUrl)) appTabId = launcher;
+    }
     // 폴백2: 팝업이 실제로 떴다면 그 탭을 잡는다. onCreated로 기다렸다가 로드 완료된 id를 받는다.
     if (appTabId == null && iconFrame != null) {
       appTabId = await clickOpensTab(launcher, () => {
@@ -170,12 +195,30 @@ async function openCardApp(month, onProgress) {
   }
   if (appTabId !== launcher) await closeTab(launcher); // 앱을 새 탭으로 열었으면 런처는 닫음
 
-  const frameId = await findFrame(appTabId, 'eusr_9001');
+  // 데이터 프레임 찾기. eusr_9001이 1순위지만 프레임 이름은 바뀔 수 있으므로,
+  // 못 찾으면 '대기(n)' 탭과 #tableList가 실제로 있는 프레임을 내용으로 가려낸다.
+  let frameId = inlineFrame ? inlineFrame.frameId : null;
+  if (frameId == null || !(await hasPendingTable(appTabId, frameId))) {
+    frameId = await findFrame(appTabId, 'eusr_9001', { tries: 8 });
+  }
+  if (frameId == null || !(await hasPendingTable(appTabId, frameId))) {
+    const byContent = await evaluateAllFrames(appTabId, () => ({
+      url: location.href,
+      score: (/대기\s*\(\d+\)/.test(document.body?.innerText || '') ? 2 : 0)
+        + (document.querySelector('#tableList') ? 2 : 0)
+        + (document.querySelector('#paging_size') ? 1 : 0),
+    })).catch(() => []);
+    const best = byContent.filter((f) => f.result?.score > 0).sort((a, b) => b.result.score - a.result.score)[0];
+    if (best) frameId = best.frameId;
+  }
   if (frameId == null) {
-    const url = await evaluate(appTabId, () => location.href).catch(() => '');
+    const frames = await listFrames(appTabId);
     await closeTab(appTabId);
     const e = new Error('카드영수증 데이터 화면을 못 찾았어요');
-    e.detail = `카드영수증 앱은 열렸는데 데이터 프레임(eusr_9001)이 안 보여요.\n현재 주소: ${url || '(알 수 없음)'}\n앱이 완전히 로드되기 전이거나 화면 구조가 바뀌었을 수 있어요. 다시 시도해보고, 계속 실패하면 알려주세요.`;
+    e.detail = ['카드영수증 앱은 열렸는데 미결의 목록이 있는 화면을 못 찾았어요.',
+      '앱이 완전히 로드되기 전이거나 화면 구조가 바뀌었을 수 있어요.',
+      '', '아래는 개발자에게 그대로 전달해주세요.', `프레임 ${frames.length}개:`,
+      ...frames.map((f) => `  ${f.url.slice(0, 100)}`)].join('\n');
     throw e;
   }
   const appTab = appTabId; // 이후 단계는 이 탭을 씀

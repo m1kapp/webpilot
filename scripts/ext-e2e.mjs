@@ -104,16 +104,21 @@ const bzLauncher = `<!doctype html><html lang="ko"><body style="font-family:sans
 </body></html>`;
 
 const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
-<!-- 실물과 같은 모양: 타일이 a, 라벨은 img alt에만 있다.
-     게다가 클릭이 mousedown에만 걸려 있어 el.click()만으로는 안 열린다. -->
+<!-- 실물 그대로: 타일 a에 href도 onclick도 없고 라벨은 img alt에만 있다(alt="카드 영수증", 띄어쓰기).
+     클릭하면 새 탭도 window.open도 아니고 같은 페이지의 about:blank iframe이 채워진다.
+     주소가 그대로라 예전 코드에는 "아무 일도 안 일어난" 것으로 보였다. -->
 <ul style="display:flex;gap:16px;list-style:none;padding:12px">
-  <li style="width:110px"><a href="#" class="s3-sme-item" id="cardapp">
+  <li style="width:110px"><a class="s3-sme-item" id="cardapp">
     <img class="s3-sme-ico" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-         alt="카드영수증" style="width:64px;height:64px;background:#dde"></a></li>
-  <li style="width:110px"><a href="#">경비청구</a></li>
+         alt="카드 영수증" style="width:64px;height:64px;background:#dde"></a></li>
+  <li style="width:110px"><a>경비청구</a></li>
 </ul>
+<iframe id="appslot" src="about:blank" style="width:100%;height:600px;border:0"></iframe>
 <script>
-  document.getElementById('cardapp').addEventListener('mousedown', function () { window.open('/eusr_app.act'); });
+  // 리스너는 안쪽 아이콘에 걸려 있다 — 타일만 두드리면 안 먹는다.
+  document.querySelector('#cardapp .s3-sme-ico').addEventListener('mousedown', function () {
+    document.getElementById('appslot').src = '/eusr_9001.act';
+  });
 <\/script></body></html>`;
 
 const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
