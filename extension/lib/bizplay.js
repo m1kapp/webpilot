@@ -2,7 +2,7 @@
 // 타임인아웃 근태로 증빙 가능 여부를 판정한다. src/lib/bizplay.mjs의 getYagunTaxi/getYasik에 대응.
 // ⚠ 상신(일괄결의)은 제외 — 실제 경비 시스템에 쓰기라 실계정 검증 후. 여기선 조회·판정까지.
 // ⚠ 카드영수증은 런처→새 탭→eusr_9001 iframe 구조라 라이브 검증 필요.
-import { openTab, closeTab, evaluate, evaluateMain, clickOpensTab, findFrame, evaluateFrame } from './tab.js';
+import { openTab, closeTab, evaluate, evaluateAllFrames, clickOpensTab, findFrame, evaluateFrame } from './tab.js';
 import { getOvertime } from './overtime.js';
 import { isNight, isYasikMeal, yasikClass } from '../core/expense.js';
 import { yagunDateOf } from '../core/calendar.js';
@@ -14,6 +14,33 @@ const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).pad
 // 완료 행 컬럼: td[2]종류 td[3]일시 td[4]사용처 td[7]금액
 const toItem = (td) => ({ type: td[2], date: td[3], merchant: td[4], amount: won(td[7]),
   key: `${td[3]}|${td[4]}|${td[7]}` });
+
+// 프레임 하나에서 '카드영수증' 타일을 찾는다. 글자로만 찾으면 아이콘이 이미지이거나
+// 라벨이 alt/title에만 있는 화면에서 놓친다. 진단에 쓰려고 요소 설명도 같이 돌려준다.
+// ⚠ 직렬화돼 페이지로 건너간다 — 바깥 변수를 못 데려간다.
+function findCardReceipt() {
+  const rx = /카드\s*영수증|카드영수증/;
+  const desc = (el) => {
+    const cls = typeof el.className === 'string' && el.className.trim()
+      ? '.' + el.className.trim().split(/\s+/).slice(0, 4).join('.') : '';
+    const r = el.getBoundingClientRect();
+    return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls} [${Math.round(r.width)}x${Math.round(r.height)}]`
+      + `${el.offsetParent ? '' : ' (숨김)'}`;
+  };
+  const hit = (el) => {
+    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    const a = ['alt', 'title', 'aria-label', 'onclick'].map((k) => el.getAttribute?.(k) || '').join(' ');
+    return (t.length < 60 && rx.test(t)) || rx.test(a);
+  };
+  const found = [...document.querySelectorAll('*')].filter(hit);
+  found.sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
+  // 아무것도 못 찾았을 때 "이 프레임에 뭐가 있긴 한가"를 가늠할 단서
+  const sample = [...document.querySelectorAll('a,button,li,[onclick]')]
+    .filter((el) => el.offsetParent !== null)
+    .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+    .filter((t) => t && t.length < 24).slice(0, 15);
+  return { url: location.href, count: found.length, items: found.slice(0, 6).map(desc), sample };
+}
 
 // 런처 → 카드영수증 앱(새 탭) → 데이터 iframe. 대상월로 날짜범위까지 세팅한 frame 참조 반환.
 async function openCardApp(month, onProgress) {
@@ -38,23 +65,42 @@ async function openCardApp(month, onProgress) {
   // → window.open을 가로채 URL만 뽑고, 그 URL을 확장이 직접 chrome.tabs.create로 연다(팝업 차단 없음).
   //   사용자가 팝업 허용 등 아무 조작도 할 필요 없음.
   const beforeUrl = await evaluate(launcher, () => location.href);
+  // 아이콘이 어느 프레임에 있는지부터 찾는다. 포털이라 앱 목록이 iframe 안에 있을 수 있고,
+  // 늦게 그려지기도 해서 몇 번 다시 본다.
+  let iconFrame = null;
+  for (let i = 0; i < 6 && iconFrame == null; i++) {
+    const hits = await evaluateAllFrames(launcher, findCardReceipt);
+    const hit = hits.find((h) => h.result?.count > 0);
+    if (hit) { iconFrame = hit.frameId; break; }
+    await sleep(1000);
+  }
+
   // ⚠ 반드시 메인 월드에서. 기본 격리 월드에서 window.open을 덮어써 봐야 페이지의
   //    onclick이 부르는 건 페이지 쪽 window.open이라 가로채지지 않는다.
-  const openedUrl = await evaluateMain(launcher, () => new Promise((resolve) => {
+  const openedUrl = iconFrame == null ? null : await evaluate(launcher, () => new Promise((resolve) => {
     const orig = window.open;
     let done = false;
     const finish = (u) => { if (done) return; done = true; window.open = orig; resolve(u || null); };
     window.open = function (u) { finish(u ? new URL(u, location.href).href : null); return { closed: false, focus() {}, close() {} }; };
-    // '카드영수증' 앱 아이콘 중앙의 실제 요소를 클릭
-    let box = [...document.querySelectorAll('.app_box')].find((el) => /카드영수증/.test(el.textContent || '') && el.offsetParent !== null);
-    if (!box) {
-      const cand = [...document.querySelectorAll('a, li, button, [onclick], div')]
-        .filter((el) => /카드영수증/.test(el.textContent || '') && el.offsetParent !== null && (el.textContent || '').length < 40);
-      box = cand.sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
+    // 글자·alt·title·onclick 어디에 적혀 있든 '카드영수증' 타일을 찾는다.
+    const rx = /카드\s*영수증|카드영수증/;
+    const hit = (el) => {
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      const a = ['alt', 'title', 'aria-label', 'onclick'].map((k) => el.getAttribute?.(k) || '').join(' ');
+      return (t.length < 60 && rx.test(t)) || rx.test(a);
+    };
+    const cand = [...document.querySelectorAll('*')]
+      .filter((el) => hit(el) && el.offsetParent !== null && el.getBoundingClientRect().width > 0);
+    // 글자를 직접 감싼 가장 안쪽 요소부터, 실제로 눌리는 조상(a/button/onclick)까지 올라가며 시도
+    cand.sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
+    const box = cand[0];
+    if (box) {
+      const target = box.closest('a,button,[onclick],li') || box;
+      const r = target.getBoundingClientRect();
+      (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || target).click();
     }
-    if (box) { const r = box.getBoundingClientRect(); (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || box).click(); }
     setTimeout(() => finish(null), 3000); // window.open 안 쓰면 null (아래에서 같은탭 이동/새탭 폴백)
-  }));
+  }), undefined, { world: 'MAIN', frameId: iconFrame });
 
   let appTabId = null;
   if (openedUrl) {
@@ -66,42 +112,46 @@ async function openCardApp(month, onProgress) {
     const nowUrl = await evaluate(launcher, () => location.href).catch(() => beforeUrl);
     if (nowUrl && nowUrl !== beforeUrl && !/main_0003/.test(nowUrl)) appTabId = launcher;
     // 폴백2: 팝업이 실제로 떴다면 그 탭을 잡는다. onCreated로 기다렸다가 로드 완료된 id를 받는다.
-    if (appTabId == null) {
+    if (appTabId == null && iconFrame != null) {
       appTabId = await clickOpensTab(launcher, () => {
-        const box = [...document.querySelectorAll('.app_box')].find((el) => /카드영수증/.test(el.textContent || '') && el.offsetParent !== null);
-        if (box) { const r = box.getBoundingClientRect(); (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || box).click(); }
-      });
+        const rx = /카드\s*영수증|카드영수증/;
+        const cand = [...document.querySelectorAll('*')].filter((el) => {
+          const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          const a = ['alt', 'title', 'aria-label', 'onclick'].map((k) => el.getAttribute?.(k) || '').join(' ');
+          return ((t.length < 60 && rx.test(t)) || rx.test(a)) && el.offsetParent !== null;
+        }).sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
+        const box = cand[0];
+        if (box) {
+          const target = box.closest('a,button,[onclick],li') || box;
+          const r = target.getBoundingClientRect();
+          (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || target).click();
+        }
+      }, undefined, { frameId: iconFrame });
     }
   }
   if (appTabId == null) {
     // 아이콘을 못 찾은 건지, 찾았는데 클릭이 주소를 안 만든 건지 구분이 안 되면 고칠 수가 없다.
     // 화면에서 '카드영수증'이 들어간 요소를 훑어 에러에 같이 담는다.
-    const seen = await evaluate(launcher, () => {
-      const desc = (el) => {
-        const cls = typeof el.className === 'string' && el.className.trim()
-          ? '.' + el.className.trim().split(/\s+/).slice(0, 4).join('.') : '';
-        const r = el.getBoundingClientRect();
-        return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls} [${Math.round(r.width)}x${Math.round(r.height)}]`
-          + `${el.offsetParent ? '' : ' (숨김)'}${el.getAttribute('href') ? ` href=${el.getAttribute('href').slice(0, 50)}` : ''}`;
-      };
-      const hits = [...document.querySelectorAll('*')]
-        .filter((el) => /카드영수증/.test(el.textContent || '') && (el.textContent || '').length < 60)
-        .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
-      return { appBox: document.querySelectorAll('.app_box').length, items: hits.slice(0, 8).map(desc) };
-    }).catch(() => null);
+    const frames = await evaluateAllFrames(launcher, findCardReceipt).catch(() => []);
 
     await closeTab(launcher);
     const e = new Error('카드영수증 앱이 안 열렸어요');
     const lines = [
-      `'카드영수증' 아이콘을 눌렀지만 앱 주소를 잡지 못했어요.`,
+      iconFrame == null
+        ? `'카드영수증' 앱 아이콘을 화면에서 찾지 못했어요.`
+        : `'카드영수증' 아이콘을 눌렀지만 앱 주소를 잡지 못했어요.`,
       `현재 화면: ${beforeUrl}`,
       '로그인이 풀리지 않았는지, 카드영수증 앱이 화면에 보이는지 확인해주세요.',
+      '',
+      '아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요.',
+      `프레임 ${frames.length}개를 훑었습니다.`,
     ];
-    if (seen) {
-      lines.push('', '아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요.',
-        `.app_box 개수: ${seen.appBox}`,
-        seen.items.length ? "'카드영수증'이 들어간 요소:" : "'카드영수증'이 들어간 요소를 화면에서 찾지 못했어요.",
-        ...seen.items.map((x) => `  ${x}`));
+    for (const f of frames) {
+      const r = f.result;
+      if (!r) { lines.push(`  · (프레임 ${f.frameId}: 읽지 못함)`); continue; }
+      lines.push(`  · ${r.url.slice(0, 90)}  — 일치 ${r.count}개`);
+      for (const x of r.items || []) lines.push(`      ${x}`);
+      if (!r.count && r.sample?.length) lines.push(`      이 화면에 보이는 것: ${r.sample.join(' / ')}`);
     }
     e.detail = lines.join('\n');
     throw e;

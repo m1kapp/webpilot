@@ -30,13 +30,24 @@ export async function goto(tabId, url) {
 // page.evaluate(fn, arg)와 같은 자리.
 // 주의: func는 문자열로 직렬화돼 페이지로 건너간다 — 바깥 변수·import를 데려갈 수 없다.
 // 페이지에서는 "원문만 꺼내고", 해석은 백그라운드에서 코어(src/core)로 한다.
-export async function evaluate(tabId, func, args, { world } = {}) {
+export async function evaluate(tabId, func, args, { world, frameId } = {}) {
   // args를 넘기지 않은 호출에서 [undefined]가 되면 "Value is unserializable"로 실패한다 → 있을 때만 붙인다
-  const injection = { target: { tabId }, func };
+  const target = { tabId };
+  if (frameId != null) target.frameIds = [frameId];
+  const injection = { target, func };
   if (args !== undefined) injection.args = [args];
   if (world) injection.world = world;
   const [res] = await chrome.scripting.executeScript(injection);
   return res?.result;
+}
+
+// 탭 안의 모든 프레임에서 같은 함수를 돌리고 [{ frameId, result }]로 받는다.
+// 포털처럼 내용이 iframe 안에 있는 화면은 최상위 문서만 봐서는 아무것도 못 찾는다.
+export async function evaluateAllFrames(tabId, func, args) {
+  const injection = { target: { tabId, allFrames: true }, func };
+  if (args !== undefined) injection.args = [args];
+  const res = await chrome.scripting.executeScript(injection).catch(() => []);
+  return (res || []).map((r) => ({ frameId: r.frameId, result: r.result }));
 }
 
 // 페이지 자신의 전역(window.open 등)을 건드려야 할 때. 기본 격리 월드에서 window.open을
@@ -51,14 +62,14 @@ export async function closeTab(tabId) {
 // ── iframe 안(비즈플레이 카드영수증 앱 등)을 다루기 위한 헬퍼들 ──
 
 // 클릭이 "새 탭"을 여는 경우(런처의 앱 클릭 등): 클릭 전 onCreated를 걸고, 뜬 탭이 로드 완료되면 그 id를 준다.
-export async function clickOpensTab(tabId, clickFunc, args) {
+export async function clickOpensTab(tabId, clickFunc, args, opts) {
   const created = new Promise((resolve) => {
     const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolve(tab.id); };
     chrome.tabs.onCreated.addListener(onCreated);
     // 안전장치: 12초 내 새 탭 없으면 null
     setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolve(null); }, 12000);
   });
-  await evaluate(tabId, clickFunc, args);
+  await evaluate(tabId, clickFunc, args, opts);
   const newId = await created;
   if (newId != null) await waitComplete(newId).catch(() => {});
   return newId;

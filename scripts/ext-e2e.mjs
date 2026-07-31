@@ -96,11 +96,20 @@ const BZ_ROWS = [
 const BZ_FILLER = Array.from({ length: 28 }, (_, i) =>
   ['법인카드', `2026-06-${String((i % 28) + 1).padStart(2, '0')} 12:00`, '사무용품 구매', 50000]);
 
-const bzLauncher = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
+// 실제 런처는 포털이라 앱 목록이 iframe 안에 있고, 최상위 문서에는 '카드영수증' 글자가
+// 아예 없다(실물 진단으로 확인). 아이콘 라벨도 이미지 alt에만 있는 경우를 함께 흉내낸다.
+const bzLauncher = `<!doctype html><html lang="ko"><body style="font-family:sans-serif;margin:0">
 <h1>비즈플레이</h1>
-<div class="app_box" style="width:160px;height:90px;border:1px solid #ccc;display:flex;align-items:center;justify-content:center"
-     onclick="window.open('/eusr_app.act')">카드영수증</div>
+<iframe src="/apps_frame.act" style="width:100%;height:400px;border:0"></iframe>
 </body></html>`;
+
+const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
+<ul style="display:flex;gap:16px;list-style:none;padding:12px">
+  <li style="width:110px"><a href="#" onclick="window.open('/eusr_app.act');return false;">
+    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+         alt="카드영수증" style="width:64px;height:64px;background:#dde"></a></li>
+  <li style="width:110px"><a href="#">경비청구</a></li>
+</ul></body></html>`;
 
 const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
 <iframe src="/eusr_9001.act" style="width:100%;height:700px;border:0"></iframe>
@@ -149,6 +158,7 @@ const server = createServer(
     // 비즈플레이 — 런처 → 앱 → 데이터 프레임
     if ((req.headers.host || '').includes('bizplay')) {
       if (path === '/main_0003_01.act') return res.end(bzLauncher);
+      if (path === '/apps_frame.act') return res.end(bzApps);
       if (path === '/eusr_app.act') return res.end(bzApp);
       if (path === '/eusr_9001.act') return res.end(bzFrame);
       return res.end('<!doctype html><body>비즈플레이</body>');
