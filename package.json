@@ -16,7 +16,8 @@
     "ext:parity": "node scripts/summary-parity.mjs",
     "ext:break": "node scripts/break-rule.mjs",
     "ext:rules": "node scripts/rules.mjs",
-    "ext:probe": "node scripts/probe-month.mjs"
+    "ext:probe": "node scripts/probe-month.mjs",
+    "ext:probe-bizplay": "node scripts/probe-bizplay.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -25,7 +25,10 @@ const target = arg && /^\d{4}-\d{2}$/.test(arg)
   : `${now.getFullYear()}-${String(now.getMonth() === 0 ? 12 : now.getMonth()).padStart(2, '0')}`;
 const [ty, tm] = target.split('-').map(Number);
 
-const ctx = await chromium.launchPersistentContext(PROFILE, { headless: false, viewport: null });
+const ctx = await chromium.launchPersistentContext(PROFILE, {
+  headless: false, viewport: null,
+  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],   // 4단계에서 확장 자체를 돌려 봐야 한다
+});
 const page = ctx.pages()[0] || await ctx.newPage();
 await page.goto(URL_HISTORY, { waitUntil: 'domcontentloaded' }).catch(() => {});
 

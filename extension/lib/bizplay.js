@@ -74,9 +74,36 @@ async function openCardApp(month, onProgress) {
     }
   }
   if (appTabId == null) {
+    // 아이콘을 못 찾은 건지, 찾았는데 클릭이 주소를 안 만든 건지 구분이 안 되면 고칠 수가 없다.
+    // 화면에서 '카드영수증'이 들어간 요소를 훑어 에러에 같이 담는다.
+    const seen = await evaluate(launcher, () => {
+      const desc = (el) => {
+        const cls = typeof el.className === 'string' && el.className.trim()
+          ? '.' + el.className.trim().split(/\s+/).slice(0, 4).join('.') : '';
+        const r = el.getBoundingClientRect();
+        return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls} [${Math.round(r.width)}x${Math.round(r.height)}]`
+          + `${el.offsetParent ? '' : ' (숨김)'}${el.getAttribute('href') ? ` href=${el.getAttribute('href').slice(0, 50)}` : ''}`;
+      };
+      const hits = [...document.querySelectorAll('*')]
+        .filter((el) => /카드영수증/.test(el.textContent || '') && (el.textContent || '').length < 60)
+        .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
+      return { appBox: document.querySelectorAll('.app_box').length, items: hits.slice(0, 8).map(desc) };
+    }).catch(() => null);
+
     await closeTab(launcher);
     const e = new Error('카드영수증 앱이 안 열렸어요');
-    e.detail = `'카드영수증' 아이콘을 찾아 눌렀지만 앱 주소를 잡지 못했어요.\n현재 화면: ${beforeUrl}\n카드영수증 앱 아이콘이 화면에 보이는지, 로그인이 풀리지 않았는지 확인해주세요. 계속 실패하면 알려주세요.`;
+    const lines = [
+      `'카드영수증' 아이콘을 눌렀지만 앱 주소를 잡지 못했어요.`,
+      `현재 화면: ${beforeUrl}`,
+      '로그인이 풀리지 않았는지, 카드영수증 앱이 화면에 보이는지 확인해주세요.',
+    ];
+    if (seen) {
+      lines.push('', '아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요.',
+        `.app_box 개수: ${seen.appBox}`,
+        seen.items.length ? "'카드영수증'이 들어간 요소:" : "'카드영수증'이 들어간 요소를 화면에서 찾지 못했어요.",
+        ...seen.items.map((x) => `  ${x}`));
+    }
+    e.detail = lines.join('\n');
     throw e;
   }
   if (appTabId !== launcher) await closeTab(launcher); // 앱을 새 탭으로 열었으면 런처는 닫음
