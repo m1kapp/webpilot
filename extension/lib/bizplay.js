@@ -24,8 +24,9 @@ function findCardReceipt() {
     const cls = typeof el.className === 'string' && el.className.trim()
       ? '.' + el.className.trim().split(/\s+/).slice(0, 4).join('.') : '';
     const r = el.getBoundingClientRect();
+    const a = (k) => { const v = el.getAttribute?.(k); return v ? ` ${k}=${v.slice(0, 70)}` : ''; };
     return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls} [${Math.round(r.width)}x${Math.round(r.height)}]`
-      + `${el.offsetParent ? '' : ' (숨김)'}`;
+      + `${el.offsetParent ? '' : ' (숨김)'}${a('href')}${a('onclick')}${a('alt')}`;
   };
   const hit = (el) => {
     const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
@@ -94,10 +95,21 @@ async function openCardApp(month, onProgress) {
     // 글자를 직접 감싼 가장 안쪽 요소부터, 실제로 눌리는 조상(a/button/onclick)까지 올라가며 시도
     cand.sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
     const box = cand[0];
-    if (box) {
-      const target = box.closest('a,button,[onclick],li') || box;
-      const r = target.getBoundingClientRect();
-      (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || target).click();
+    if (!box) return;
+    const target = box.closest('a,button,[onclick],li') || box;
+
+    // href가 진짜 주소면 클릭할 것도 없이 그게 앱 주소다.
+    const href = target.getAttribute?.('href') || '';
+    if (href && !/^#|^javascript:/i.test(href)) return finish(new URL(href, location.href).href);
+
+    // 화면 밖이면 좌표가 엉뚱한 요소를 가리킨다 — 먼저 보이는 자리로 끌어온다.
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = target.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const el = (at && target.contains(at)) ? at : target;
+    // click()만으로는 안 먹는 타일이 있다(mousedown·pointerup에 걸어 둔 경우). 전체 시퀀스를 흘려보낸다.
+    for (const type of ['pointerover', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
     }
     setTimeout(() => finish(null), 3000); // window.open 안 쓰면 null (아래에서 같은탭 이동/새탭 폴백)
   }), undefined, { world: 'MAIN', frameId: iconFrame });

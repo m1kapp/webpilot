@@ -104,12 +104,17 @@ const bzLauncher = `<!doctype html><html lang="ko"><body style="font-family:sans
 </body></html>`;
 
 const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
+<!-- 실물과 같은 모양: 타일이 a, 라벨은 img alt에만 있다.
+     게다가 클릭이 mousedown에만 걸려 있어 el.click()만으로는 안 열린다. -->
 <ul style="display:flex;gap:16px;list-style:none;padding:12px">
-  <li style="width:110px"><a href="#" onclick="window.open('/eusr_app.act');return false;">
-    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+  <li style="width:110px"><a href="#" class="s3-sme-item" id="cardapp">
+    <img class="s3-sme-ico" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
          alt="카드영수증" style="width:64px;height:64px;background:#dde"></a></li>
   <li style="width:110px"><a href="#">경비청구</a></li>
-</ul></body></html>`;
+</ul>
+<script>
+  document.getElementById('cardapp').addEventListener('mousedown', function () { window.open('/eusr_app.act'); });
+<\/script></body></html>`;
 
 const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
 <iframe src="/eusr_9001.act" style="width:100%;height:700px;border:0"></iframe>
