@@ -41,7 +41,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   // 자동화 실행
   const run = RUNNERS[msg?.type];
   if (!run) return;
-  const progress = (text) => chrome.runtime.sendMessage({ type: 'progress', text }).catch(() => {});
+  // 두 번째 인자는 "그 단계에서 무엇을 봤는가" — 주소·읽은 값·건수. 패널이 실행 기록으로 쌓는다.
+  // 스크린샷을 못 찍는 대신(수집 탭이 뒤에서 돌아 captureVisibleTab 대상이 아니다) 근거를 남긴다.
+  const progress = (text, evidence) =>
+    chrome.runtime.sendMessage({ type: 'progress', text, evidence }).catch(() => {});
   run(msg, progress)
     .then((data) => reply({ ok: true, data }))
     .catch((e) => reply({ ok: false, error: e.message || String(e),

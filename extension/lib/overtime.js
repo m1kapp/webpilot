@@ -23,18 +23,44 @@ export async function getOvertime(month, onProgress = () => {}) {
     if (!monthMatches(ty, tm, label, monthOf)) {
       throw await monthMismatchError(tabId, month, ty, tm, label, monthOf);
     }
+    const dayKeys = Object.keys(cards).map(Number).sort((a, b) => a - b);
+    onProgress('근태 카드 조회 중', {
+      주소: `${USER_HOST}/InOutMng/InOutHistory`,
+      '화면의 월': label || '(못 읽음)',
+      '긁은 카드': `${dayKeys.length}일치`,
+      예시: dayKeys.slice(0, 3).map((d) => cards[d].slice(0, 70)),
+    });
 
     onProgress('경계일(자정 넘김) 보정 중');
     const overrides = await fixSpillover(tabId, cards, hrefs);
+    const fixedDays = Object.keys(overrides).map(Number).sort((a, b) => a - b);
+    onProgress('경계일(자정 넘김) 보정 중', {
+      '자정 넘김 의심': fixedDays.length ? `${fixedDays.join(', ')}일` : '없음',
+      비고: '앞날 퇴근과 그날 출근이 붙어 있으면 상세를 열어 실제 시각으로 바로잡는다',
+    });
 
     onProgress('휴가·출장 반영 중');
     // 휴가 byDay는 이미 있는 연차 수집 로직 재사용
     const leaves = await getLeaveByDay(tabId, month).catch(() => ({}));
     const trips = await fetchTrips(tabId, month).catch(() => ({}));
     const corrections = await fetchSubmittedCorrections(tabId, month).catch(() => ({}));
+    onProgress('휴가·출장 반영 중', {
+      휴가: Object.keys(leaves).length ? `${Object.keys(leaves).sort((a, b) => a - b).join(', ')}일` : '없음',
+      출장: Object.keys(trips).length ? `${Object.keys(trips).sort((a, b) => a - b).join(', ')}일` : '없음',
+      '정정 신청': Object.keys(corrections).length ? `${Object.keys(corrections).sort((a, b) => a - b).join(', ')}일` : '없음',
+    });
 
     onProgress('초과근무 계산 중');
     const result = buildDays(cardsToByDay(cards, overrides), month, corrections, leaves, trips);
+    const s = result.summary;
+    onProgress('초과근무 계산 중', {
+      '평일 초과': s.wdOtText, '휴일 근무': s.holText, '총 근로': s.totalAllText,
+      '합계에서 제외': [
+        s.correctedDays.length ? `정정 ${s.correctedDays.join(',')}일` : '',
+        s.missingDays.length ? `누락 ${s.missingDays.join(',')}일` : '',
+        s.suspectDays.length ? `의심 ${s.suspectDays.join(',')}일` : '',
+      ].filter(Boolean).join(' · ') || '없음',
+    });
     return { month, name: '본인', mode: 'employee', corrections, leaves, trips, ...result };
   } finally {
     await closeTab(tabId);

@@ -133,8 +133,13 @@ function goHome() {
 }
 
 // ── 실행 ──
+let trace = [];          // 이번 실행에서 "무엇을 봤는지" — 결과 화면의 실행 기록으로 쓴다
+let traceStart = 0;
+
 async function start(auto) {
   current = auto;
+  trace = [];
+  traceStart = Date.now();
   buildSteps(auto);
   $('run-ic').innerHTML = autoIcon(auto);
   $('run-lb').textContent = auto.label;
@@ -166,6 +171,7 @@ async function execute(auto) {
     markAllDone();
     await sleep(280); // 마지막 체크가 잠깐 보이도록
     auto.render(res.data);
+    appendTrace();     // 렌더가 view-result를 통째로 갈아치우므로 그 뒤에 붙인다
     show('result');
   } catch (e) {
     if (e.needsFlowKey) return promptFlowKey();
@@ -275,9 +281,12 @@ function failCurrentStep(message, needsLogin, detail) {
   if (more) more.onclick = () => { const d = $('err-detail'); d.hidden = !d.hidden; more.textContent = d.hidden ? '왜 그런지 자세히' : '접기'; };
 }
 
-// 백그라운드 진행 메시지
+// 백그라운드 진행 메시지. evidence가 붙어 오면 실행 기록으로 쌓는다 —
+// 수집 탭이 뒤에서 돌아 스크린샷을 못 찍는 대신, 어느 주소에서 무엇을 읽었는지 남긴다.
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'progress' && current) advanceTo(msg.text || '');
+  if (msg?.type !== 'progress' || !current) return;
+  advanceTo(msg.text || '');
+  if (msg.evidence) trace.push({ step: msg.text || '', at: Date.now(), data: msg.evidence });
 });
 
 // ── 상단바 · 연도 ──
@@ -422,6 +431,35 @@ function gaugeHTML(s) {
     <div class="gauge-fill" style="width:${pct}%;background:${over ? 'var(--red)' : h >= PAY_H ? '#e08b1a' : 'var(--blue)'}"></div>
     <div class="gauge-mark" style="left:${(PAY_H / LIMIT_H) * 100}%" title="${PAY_H}시간부터 수당 발생"></div>
   </div>`;
+}
+
+// ── 실행 기록 ──
+// 수집 탭은 뒤에서(active:false) 돌아 captureVisibleTab 대상이 아니라 화면을 못 찍는다.
+// 대신 단계마다 "어느 주소에서 무엇을 읽었는지"를 남긴다. 숫자가 이상할 때
+// 어디서 어긋났는지 여기서 짚을 수 있다.
+function appendTrace() {
+  if (!trace.length) return;
+  const secs = (t) => `${((t - traceStart) / 1000).toFixed(1)}초`;
+  const row = ([k, v]) => {
+    const val = Array.isArray(v)
+      ? `<ul class="tr-list">${v.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+      : `<span class="tr-v${/^https?:/.test(String(v)) ? ' url' : ''}">${esc(v)}</span>`;
+    return `<div class="tr-kv"><span class="tr-k">${esc(k)}</span>${val}</div>`;
+  };
+  const html = `
+    <details class="card trace">
+      <summary><b>실행 기록</b><span>${trace.length}단계 · ${secs(trace[trace.length - 1].at)}</span></summary>
+      <div class="tr-body">
+        ${trace.map((t) => `
+          <div class="tr-step">
+            <div class="tr-hd">${esc(t.step)}<em>${secs(t.at)}</em></div>
+            ${Object.entries(t.data).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)).map(row).join('')}
+          </div>`).join('')}
+      </div>
+      <p class="foot">화면을 그대로 찍지는 않는다 — 수집 탭이 뒤에서 돌아 캡처 대상이 아니다.
+        대신 어느 주소에서 무엇을 읽었는지 남긴다.</p>
+    </details>`;
+  $('view-result').insertAdjacentHTML('beforeend', html);
 }
 
 const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;

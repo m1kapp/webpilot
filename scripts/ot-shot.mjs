@@ -61,6 +61,14 @@ await pg.click('.auto[data-id="overtime"]');
 await pg.waitForSelector('#view-result:not([hidden]) #clock', { timeout: 30000 });
 await pg.waitForTimeout(700);
 await pg.screenshot({ path: '/tmp/ot-narrow.png', fullPage: true });
+// 실행 기록은 결과 맨 아래에 접혀 있다. 펼쳐서 그 요소만 따로 찍는다
+// (.body 안쪽이 스크롤 컨테이너라 fullPage로는 아래가 안 잡힌다).
+await pg.evaluate(() => {
+  const d = document.querySelector('details.trace');
+  if (d) { d.open = true; d.scrollIntoView({ block: 'start' }); }
+});
+await pg.waitForTimeout(300);
+await pg.locator('details.trace').screenshot({ path: '/tmp/ot-trace.png' }).catch(() => {});
 
 // 캔버스가 실제로 뭔가 그렸는지(전부 투명이면 실패)
 const painted = await pg.$eval('#clock', (c) => {

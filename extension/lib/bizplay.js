@@ -179,6 +179,13 @@ async function openCardApp(month, onProgress) {
     throw e;
   }
   const appTab = appTabId; // 이후 단계는 이 탭을 씀
+  const appUrl = await evaluate(appTab, () => location.href).catch(() => '');
+  onProgress('카드영수증 앱 여는 중', {
+    런처: beforeUrl,
+    '앱 주소': appUrl || '(못 읽음)',
+    '연 방법': openedUrl ? 'window.open 가로채기' : (appTabId === launcher ? '같은 탭 이동' : '새 탭'),
+    '데이터 프레임': 'eusr_9001 찾음',
+  });
   await sleep(1500);
 
   // 대상월 날짜 범위 세팅
@@ -244,7 +251,16 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
   try {
     onProgress('미결의(대기) 조회 중');
     const rows = await loadPendingRows(appTab, frameId);
+    onProgress('미결의(대기) 조회 중', {
+      '긁은 행': `${rows.length}건`,
+      예시: rows.slice(0, 3).map((td) => `${td[3]} · ${td[4]} · ${td[7]}`),
+    });
     const taxis = rows.map(toItem).filter((it) => /택시/.test(it.merchant) && isNight(it.date) && it.amount > 0);
+    onProgress('미결의(대기) 조회 중', {
+      '심야 택시 후보': `${taxis.length}건`,
+      기준: '사용처에 택시 + 23~03시 결제',
+      '걸러진 건': `${rows.length - taxis.length}건 (택시 아님·주간 결제)`,
+    });
 
     const timeMap = taxis.length
       ? await collectAttendance([...new Set(taxis.map((it) => yagunDateOf(it.date).slice(0, 7)))], onProgress)
@@ -259,6 +275,11 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
         otText: worked ? fmt(otMin) : '', isHoliday: isHol, hasProof: worked };
     });
     const withProof = items.filter((x) => x.hasProof);
+    onProgress('타임인아웃 근태 매칭', {
+      '증빙 있음': `${withProof.length}건`,
+      '증빙 없음': `${items.length - withProof.length}건`,
+      판정: items.slice(0, 4).map((x) => `${x.yagunDate} ${x.merchant} → ${x.hasProof ? `야근 ${x.otText}` : '그날 야근 기록 없음'}`),
+    });
     const submitAmt = withProof.reduce((a, x) => a + x.amount, 0);
     const total = items.reduce((a, x) => a + x.amount, 0);
     return {
@@ -275,7 +296,16 @@ export async function getYasik(month, onProgress = () => {}) {
   try {
     onProgress('미결의(대기) 조회 중');
     const rows = await loadPendingRows(appTab, frameId);
+    onProgress('미결의(대기) 조회 중', {
+      '긁은 행': `${rows.length}건`,
+      예시: rows.slice(0, 3).map((td) => `${td[3]} · ${td[4]} · ${td[7]}`),
+    });
     const meals = rows.map(toItem).filter((it) => it.amount > 0 && it.amount <= 13000 && !/택시/.test(it.merchant) && isYasikMeal(it.date));
+    onProgress('미결의(대기) 조회 중', {
+      '식대 후보': `${meals.length}건`,
+      기준: '13,000원 이하 + 저녁(17~22시) 또는 조식(05~09시) + 택시 아님',
+      '걸러진 건': `${rows.length - meals.length}건 (금액 초과·시간대 밖)`,
+    });
 
     const timeMap = meals.length
       ? await collectAttendance([...new Set(meals.map((it) => it.date.slice(0, 7)))], onProgress)
@@ -288,6 +318,11 @@ export async function getYasik(month, onProgress = () => {}) {
         inText: rec ? rec.inText : '', otText: rec && !rec.missing ? fmt((rec.weekend || rec.holiday) ? rec.holMin : rec.otMin) : '' };
     });
     const eligible = items.filter((x) => x.eligible);
+    onProgress('타임인아웃 근태 매칭', {
+      인정: `${eligible.length}건`,
+      제외: `${items.length - eligible.length}건`,
+      판정: items.slice(0, 4).map((x) => `${x.mealDate} ${x.merchant} → ${x.why}`),
+    });
     const amount = eligible.reduce((a, x) => a + x.amount, 0);
     const total = items.reduce((a, x) => a + x.amount, 0);
     return {

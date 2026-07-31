@@ -284,6 +284,25 @@ const otHasData = /평일 초과근무/.test(otSummary) && /휴일 근무/.test(
   && /한도와 별도 집계/.test(otSummary) && /주 평균 근로/.test(otSummary)
   && otRows.length >= 1 && !/오류|없어요 🎉$/.test(otRows[0] || '');
 // 6/2(초과), 6/13(휴일) 이 표에 잡혀야 함
+// 실행 기록 — 스크린샷 대신 "무엇을 봤는지"가 단계별로 쌓여야 한다.
+const traceInfo = await page.evaluate(() => {
+  const d = document.querySelector('details.trace');
+  if (!d) return null;
+  d.open = true;
+  return {
+    steps: [...d.querySelectorAll('.tr-step .tr-hd')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+    text: d.innerText.replace(/\s+/g, ' '),
+  };
+});
+console.log('\n── 실행 기록 ──');
+if (traceInfo) { for (const st of traceInfo.steps) console.log('  ' + st); }
+else console.log('  (없음)');
+checks.push(
+  ['실행 기록 표시', !!traceInfo && traceInfo.steps.length >= 3],
+  ['실행 기록에 읽은 주소', !!traceInfo && /user\.timeinout\.kr/.test(traceInfo.text)],
+  ['실행 기록에 화면의 월', !!traceInfo && /2026년 6월/.test(traceInfo.text)],
+  ['실행 기록에 제외 사유', !!traceInfo && /합계에서 제외/.test(traceInfo.text)]);
+
 const otCatchesOvertime = otRows.some((r) => /\+\d+(:\d\d|분)/.test(r)); // 배지 예: +2:45 / +30분
 
 await page.screenshot({ path: '/tmp/ext-overtime.png', fullPage: true });
