@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05r';
+const BUILD = '2026-08-05s';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -711,6 +711,27 @@ async function findFrameWithSelector(tabId, selector, tries = 10) {
 // 공용 브리지일 뿐 증빙 업로드 input이 아니다. 이걸 잡으면 파일 수만 1이 되고 요청은 0건이다.
 const UPLOAD_FILE_SELECTOR = 'input[type=file]:not(#BBFileElement):not([onchange*="_WE_DRIVER.changeFileList"])';
 
+// platform.bizplay.co.kr의 공용 첨부 팝업에서는 BBFileElement 자체가 실제 입력칸이다.
+// appplay 본문에 상시 존재하는 동명 브리지는 계속 제외하고, 이 팝업 출처에서만 허용한다.
+async function findPopupUploadFrame(tabId, tries = 14) {
+  for (let i = 0; i < tries; i++) {
+    const frames = await evaluateAllFrames(tabId, () => {
+      const inputs = [...document.querySelectorAll('input[type=file]')];
+      const normal = inputs.find((e) => e.id !== 'BBFileElement'
+        && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+      const allowBridge = location.hostname === 'platform.bizplay.co.kr';
+      const bridge = allowBridge ? inputs.find((e) => e.id === 'BBFileElement'
+        || /_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || '')) : null;
+      return { found: !!(normal || bridge), allowBridge: !normal && !!bridge, url: location.href,
+        input: (normal || bridge)?.outerHTML?.replace(/\s+/g, ' ').slice(0, 300) || '' };
+    }).catch(() => []);
+    const hit = frames.find((x) => x.result?.found);
+    if (hit) return { frameId: hit.frameId, allowBridge: !!hit.result.allowBridge, frames };
+    await sleep(350);
+  }
+  return { frameId: null, allowBridge: false, frames: [] };
+}
+
 // 버튼이 결의 모달의 어느 하위 프레임에 있든 찾아 클릭한다.
 // 파일첨부는 팝업뿐 아니라 같은 탭에 업로드 iframe을 만드는 변형도 지원한다.
 async function openUploadTarget(tabId, preferredFrame) {
@@ -725,14 +746,16 @@ async function openUploadTarget(tabId, preferredFrame) {
     const opened = await openCapturedPopup(tabId, frameId, '파일첨부');
     attempts.push(opened.debug);
     if (opened.tabId != null) {
-      const popupInput = await findFrameWithSelector(opened.tabId, UPLOAD_FILE_SELECTOR, 14);
-      if (popupInput.frameId != null) return { tabId: opened.tabId, frameId: popupInput.frameId, popup: true, actionFrame: frameId, scanned, attempts };
+      const popupInput = await findPopupUploadFrame(opened.tabId, 14);
+      if (popupInput.frameId != null) return { tabId: opened.tabId, frameId: popupInput.frameId,
+        popup: true, allowBridge: popupInput.allowBridge, actionFrame: frameId, scanned, attempts };
       await closeTab(opened.tabId);
     }
     const inline = await findFrameWithSelector(tabId, UPLOAD_FILE_SELECTOR, 4);
-    if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, actionFrame: frameId, scanned, attempts };
+    if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, allowBridge: false,
+      actionFrame: frameId, scanned, attempts };
   }
-  return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned, attempts };
+  return { tabId: null, frameId: null, popup: false, allowBridge: false, actionFrame: null, scanned, attempts };
 }
 
 // 실화면의 첨부 UI는 세 종류다: 성공 후 닫히는 팝업, 사라지는 iframe,
@@ -780,8 +803,8 @@ async function installUploadProbe(tabId, frameId) {
   }, undefined, { frameId, world: 'MAIN' }).catch(() => false);
 }
 
-async function readUploadProbe(tabId, frameId) {
-  return evaluate(tabId, () => {
+async function readUploadProbe(tabId, frameId, allowBridge = false) {
+  return evaluate(tabId, (bridgeOkay) => {
     const p = window.__webwingUploadProbe || {};
     const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
     const actions = [...document.querySelectorAll('button,a,input[type=button],input[type=submit],input[type=image],[role=button],[onclick]')]
@@ -789,12 +812,13 @@ async function readUploadProbe(tabId, frameId) {
       .map((e) => (e.textContent || e.value || e.getAttribute('alt') || e.getAttribute('title') || '')
         .replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12);
     const input = [...document.querySelectorAll('input[type=file]')]
-      .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+      .find((e) => bridgeOkay || (e.id !== 'BBFileElement'
+        && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || '')));
     return { requests: p.requests || 0, successes: p.successes || 0, failures: p.failures || 0,
       submitted: p.submitted || 0, text: text.slice(0, 220), actions, url: location.href,
       hasFile: !!input, fileCount: input?.files?.length || 0,
       fileInput: input?.outerHTML?.replace(/\s+/g, ' ').slice(0, 260) || '' };
-  }, undefined, { frameId, world: 'MAIN' }).catch(() => null);
+  }, allowBridge, { frameId, world: 'MAIN' }).catch(() => null);
 }
 
 async function restoreUploadProbe(tabId, frameId) {
@@ -965,16 +989,17 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       // 실제 Bizplay 첨부 화면은 별도 실행 버튼 없이 file input의 change에서 곧바로
       // 업로드한다. change 이벤트보다 먼저 감시를 켜야 그 요청의 성공을 놓치지 않는다.
       await installUploadProbe(upload.tabId, upload.frameId);
-      const setFile = await evaluate(upload.tabId, (f) => {
+      const setFile = await evaluate(upload.tabId, ({ file: f, allowBridge }) => {
         const input = [...document.querySelectorAll('input[type=file]')]
-          .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+          .find((e) => allowBridge || (e.id !== 'BBFileElement'
+            && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || '')));
         if (!input) return false;
         const bin = atob(f.base64), bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
         input.files = dt.files; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
         return input.files.length === 1;
-      }, file, { frameId: upload.frameId, world: 'MAIN' });
+      }, { file, allowBridge: upload.allowBridge }, { frameId: upload.frameId, world: 'MAIN' });
       if (!setFile) {
         await restoreUploadProbe(upload.tabId, upload.frameId);
         throw new Error('증빙 파일 입력칸을 못 찾았어요');
@@ -983,7 +1008,7 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       // 파일 선택 뒤에 버튼을 늦게 그리는 업로더도 있다. button/a만 보지 않고
       // div·span·이미지형 컨트롤까지 텍스트로 찾아 실제 클릭 가능한 조상을 누른다.
       for (let i = 0; i < 9 && !uploadClick.clicked; i++) {
-        uploadClick = await evaluate(upload.tabId, () => {
+        uploadClick = await evaluate(upload.tabId, (allowBridge) => {
           const label = (e) => (e.textContent || e.value || e.getAttribute?.('alt') || e.getAttribute?.('title') || '')
             .replace(/\s+/g, ' ').trim();
           const actionable = 'button,a,input[type=button],input[type=submit],input[type=image],[role=button],[onclick]';
@@ -997,24 +1022,26 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
             || visible.find((e) => /업로드|첨부|추가|전송|등록|저장|확인/.test(label(e)));
           const actions = visible.map(label).filter(Boolean).slice(0, 16);
           const fileInput = [...document.querySelectorAll('input[type=file]')]
-            .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+            .find((e) => allowBridge || (e.id !== 'BBFileElement'
+              && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || '')));
           if (!action || action.matches('input[type=file]')) {
             return { clicked: false, actions, hasForm: !!fileInput?.form };
           }
           const picked = label(action) || action.tagName.toLowerCase(); action.click();
           return { clicked: true, label: picked, actions, hasForm: !!fileInput?.form };
-        }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
+        }, upload.allowBridge, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
         if (!uploadClick.clicked) await sleep(350);
       }
       // 텍스트 컨트롤도 없지만 file input이 form 안에 있으면 브라우저의 정식 submit 경로를 쓴다.
       if (!uploadClick.clicked && uploadClick.hasForm) {
-        uploadClick = await evaluate(upload.tabId, () => {
+        uploadClick = await evaluate(upload.tabId, (allowBridge) => {
           const input = [...document.querySelectorAll('input[type=file]')]
-            .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+            .find((e) => allowBridge || (e.id !== 'BBFileElement'
+              && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || '')));
           const form = input?.form;
           if (!form) return { clicked: false, actions: [] };
           form.requestSubmit(); return { clicked: true, label: '첨부 폼 제출', actions: [] };
-        }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
+        }, upload.allowBridge, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
       }
       if (!uploadClick?.clicked) {
         onProgress('야근 증빙 첨부', { try: '첨부 화면의 실행 버튼 검색',
@@ -1028,7 +1055,7 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
           const frames = await listFrames(appTab);
           if (!frames.some((x) => x.frameId === upload.frameId)) { uploadDoneBy = '첨부 프레임 닫힘'; break; }
         }
-        lastUploadState = await readUploadProbe(upload.tabId, upload.frameId);
+        lastUploadState = await readUploadProbe(upload.tabId, upload.frameId, upload.allowBridge);
         if (lastUploadState?.successes > 0) { uploadDoneBy = '업로드 응답 성공'; break; }
         const failedText = /업로드\s*(실패|오류)|첨부\s*(실패|오류)|error/i.test(lastUploadState?.text || '');
         const successText = /업로드\s*(완료|성공)|첨부\s*(완료|성공)|등록되었습니다|저장되었습니다/.test(lastUploadState?.text || '');

@@ -213,8 +213,8 @@ const bzUpload = `<!doctype html><html><body><input type="file"><button id="uplo
 <script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.close()}<\/script></body></html>`;
 // 실화면 변형: button/a가 아닌 span 컨트롤로 업로드하고 성공 뒤에도 iframe을 그대로 둔다.
 // 제한된 버튼 셀렉터나 "프레임이 닫힘"만 보는 구현은 여기서 실패해야 한다.
-const bzUploadInline = `<!doctype html><html><body><input type="file"><span id="upload" onclick="send()">업로드</span><div id="status"></div>
-<script>async function send(){var n=document.querySelector('input').files[0].name;await fetch('/__expense_upload',{method:'POST'});document.getElementById('status').textContent='첨부 완료';var row=document.createElement('div');row.className='attached-file';row.textContent=n;parent.document.body.appendChild(row)}<\/script></body></html>`;
+const bzUploadInline = `<!doctype html><html><body><input type="file" id="BBFileElement" style="display:none" onchange="_WE_DRIVER.changeFileList(this)" multiple><span id="upload" onclick="send()">업로드</span><div id="status"></div>
+<script>window._WE_DRIVER={changeFileList:function(){}};async function send(){var n=document.querySelector('input').files[0].name;await fetch('/__expense_upload',{method:'POST'});document.getElementById('status').textContent='첨부 완료';var row=document.createElement('div');row.className='attached-file';row.textContent=n}<\/script></body></html>`;
 const bzApprovalLine = `<!doctype html><html><body><select id="APPRLINE_NM"><option>선택</option><option value="corp">법인카드 지출결의서</option></select>
 <button id="ok">확인</button><script>document.getElementById('ok').onclick=async function(){await fetch('/__expense_submit',{method:'POST'});window.close()}<\/script></body></html>`;
 
@@ -651,7 +651,7 @@ checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수�
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
-  ['부모 프레임의 원본 POST 폼 재생과 비표준 업로드 컨트롤', inlineUploadLoads === 1],
+  ['platform 팝업의 BBFileElement 증빙 업로드', inlineUploadLoads === 1],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],
   ['야근식비 결재 상신', mealSubmitOk]);
