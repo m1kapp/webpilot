@@ -210,8 +210,10 @@ document.getElementById('attach').onclick=function(){var f=document.createElemen
 <\/script></body></html>`;
 const bzUpload = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
 <script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.close()}<\/script></body></html>`;
-const bzUploadInline = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
-<script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.frameElement.remove()}<\/script></body></html>`;
+// 실화면 변형: 업로드 성공 뒤에도 iframe을 닫지 않고 완료 문구와 결의서 파일 행만 갱신한다.
+// "프레임이 사라짐"만 완료로 보는 구현은 여기서 실패해야 한다.
+const bzUploadInline = `<!doctype html><html><body><input type="file"><button id="upload">파일 첨부</button><div id="status"></div>
+<script>document.getElementById('upload').onclick=async function(){var n=document.querySelector('input').files[0].name;await fetch('/__expense_upload',{method:'POST'});document.getElementById('status').textContent='첨부 완료';var row=document.createElement('div');row.className='attached-file';row.textContent=n;parent.document.body.appendChild(row)}<\/script></body></html>`;
 const bzApprovalLine = `<!doctype html><html><body><select id="APPRLINE_NM"><option>선택</option><option value="corp">법인카드 지출결의서</option></select>
 <button id="ok">확인</button><script>document.getElementById('ok').onclick=async function(){await fetch('/__expense_submit',{method:'POST'});window.close()}<\/script></body></html>`;
 

@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05k';
+const BUILD = '2026-08-05l';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -570,6 +570,82 @@ async function openUploadTarget(tabId, preferredFrame) {
   return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned };
 }
 
+// 실화면의 첨부 UI는 세 종류다: 성공 후 닫히는 팝업, 사라지는 iframe,
+// 그대로 남아서 "완료"만 표시하는 iframe. 마지막 종류를 닫힘만 기다리면 이미
+// 첨부됐는데도 실패로 오인한다. 네트워크 성공·완료 문구·결의서의 파일명을 함께 본다.
+async function installUploadProbe(tabId, frameId) {
+  return evaluate(tabId, () => {
+    const old = window.__webwingUploadProbe;
+    old?.restore?.();
+    const state = { requests: 0, successes: 0, failures: 0, submitted: 0 };
+    const origFetch = window.fetch;
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+    const onSubmit = () => { state.submitted++; };
+    window.fetch = function (...args) {
+      state.requests++;
+      return origFetch.apply(this, args).then((res) => {
+        if (res.ok) state.successes++; else state.failures++;
+        return res;
+      }, (err) => { state.failures++; throw err; });
+    };
+    XMLHttpRequest.prototype.open = function (...args) {
+      this.__webwingUploadRequest = true;
+      return origOpen.apply(this, args);
+    };
+    XMLHttpRequest.prototype.send = function (...args) {
+      if (this.__webwingUploadRequest) {
+        state.requests++;
+        this.addEventListener('loadend', () => {
+          if (this.status >= 200 && this.status < 400) state.successes++;
+          else state.failures++;
+        }, { once: true });
+      }
+      return origSend.apply(this, args);
+    };
+    document.addEventListener('submit', onSubmit, true);
+    state.restore = () => {
+      window.fetch = origFetch;
+      XMLHttpRequest.prototype.open = origOpen;
+      XMLHttpRequest.prototype.send = origSend;
+      document.removeEventListener('submit', onSubmit, true);
+    };
+    window.__webwingUploadProbe = state;
+    return true;
+  }, undefined, { frameId, world: 'MAIN' }).catch(() => false);
+}
+
+async function readUploadProbe(tabId, frameId) {
+  return evaluate(tabId, () => {
+    const p = window.__webwingUploadProbe || {};
+    const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const actions = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
+      .filter((e) => e.offsetParent !== null)
+      .map((e) => (e.textContent || e.value || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12);
+    return { requests: p.requests || 0, successes: p.successes || 0, failures: p.failures || 0,
+      submitted: p.submitted || 0, text: text.slice(0, 220), actions, url: location.href,
+      hasFile: !!document.querySelector('input[type=file]') };
+  }, undefined, { frameId, world: 'MAIN' }).catch(() => null);
+}
+
+async function restoreUploadProbe(tabId, frameId) {
+  await evaluate(tabId, () => {
+    window.__webwingUploadProbe?.restore?.();
+    delete window.__webwingUploadProbe;
+  }, undefined, { frameId, world: 'MAIN' }).catch(() => {});
+}
+
+async function findAttachedFile(tabId, fileName, uploadFrame) {
+  const base = String(fileName || '').replace(/\.[^.]+$/, '');
+  const frames = await evaluateAllFrames(tabId, ({ name, stem }) => {
+    const haystack = [document.body?.innerText || '', ...[...document.querySelectorAll('[title],[data-file-name],a[href]')]
+      .map((e) => `${e.getAttribute('title') || ''} ${e.getAttribute('data-file-name') || ''} ${e.getAttribute('href') || ''}`)]
+      .join(' ');
+    return { found: haystack.includes(name) || (stem.length > 8 && haystack.includes(stem)), url: location.href };
+  }, { name: fileName, stem: base }).catch(() => []);
+  return frames.find((x) => x.frameId !== uploadFrame && x.result?.found) || null;
+}
+
 async function openPopupFromAnyFrame(tabId, preferredFrame, label) {
   const scanned = await findActionFrames(tabId, label);
   const frames = scanned.filter((x) => x.result?.count > 0).map((x) => x.frameId);
@@ -719,22 +795,48 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
         return input.files.length === 1;
       }, file, { frameId: upload.frameId });
       if (!setFile) throw new Error('증빙 파일 입력칸을 못 찾았어요');
-      await evaluate(upload.tabId, () => {
-        const el = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
-          .find((e) => /^업로드$/.test((e.textContent || e.value || '').trim()) && e.offsetParent !== null);
-        el?.click();
+      await installUploadProbe(upload.tabId, upload.frameId);
+      const uploadClick = await evaluate(upload.tabId, () => {
+        const visible = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
+          .filter((e) => e.offsetParent !== null);
+        const label = (e) => (e.textContent || e.value || '').replace(/\s+/g, ' ').trim();
+        const exact = visible.find((e) => /^업로드$/.test(label(e)));
+        const action = exact || visible.find((e) => /업로드|파일\s*첨부|첨부하기|등록|저장|확인/.test(label(e)));
+        if (!action) return { clicked: false, actions: visible.map(label).filter(Boolean).slice(0, 12) };
+        const picked = label(action); action.click();
+        return { clicked: true, label: picked, actions: visible.map(label).filter(Boolean).slice(0, 12) };
       }, undefined, { frameId: upload.frameId, world: 'MAIN' });
-      const uploaded = upload.popup ? await waitTabClosed(upload.tabId) : await (async () => {
-        for (let i = 0; i < 22; i++) {
+      if (!uploadClick?.clicked) {
+        await restoreUploadProbe(upload.tabId, upload.frameId);
+        onProgress('야근 증빙 첨부', { try: '첨부 화면의 실행 버튼 검색', result: '버튼 못 찾음',
+          버튼: uploadClick?.actions || [] });
+        throw new Error('증빙 업로드 버튼을 못 찾았어요');
+      }
+      let uploadDoneBy = '', lastUploadState = null;
+      for (let i = 0; i < 34; i++) {
+        if (upload.popup && !(await tabAlive(upload.tabId))) { uploadDoneBy = '첨부창 닫힘'; break; }
+        if (!upload.popup) {
           const frames = await listFrames(appTab);
-          if (!frames.some((x) => x.frameId === upload.frameId)) return true;
-          await sleep(450);
+          if (!frames.some((x) => x.frameId === upload.frameId)) { uploadDoneBy = '첨부 프레임 닫힘'; break; }
         }
-        return false;
-      })();
-      if (!uploaded) throw new Error('증빙 업로드가 완료되지 않았어요');
+        lastUploadState = await readUploadProbe(upload.tabId, upload.frameId);
+        if (lastUploadState?.successes > 0) { uploadDoneBy = '업로드 응답 성공'; break; }
+        const failedText = /업로드\s*(실패|오류)|첨부\s*(실패|오류)|error/i.test(lastUploadState?.text || '');
+        const successText = /업로드\s*(완료|성공)|첨부\s*(완료|성공)|등록되었습니다|저장되었습니다/.test(lastUploadState?.text || '');
+        if (successText && !failedText) { uploadDoneBy = '첨부 화면 완료 표시'; break; }
+        const attached = await findAttachedFile(appTab, file.name, upload.popup ? -1 : upload.frameId);
+        if (attached) { uploadDoneBy = `결의서 파일 표시 (프레임 ${attached.frameId})`; break; }
+        await sleep(450);
+      }
+      if (await tabAlive(upload.tabId)) await restoreUploadProbe(upload.tabId, upload.frameId);
+      if (!uploadDoneBy) {
+        onProgress('야근 증빙 첨부', { try: `${uploadClick.label} 버튼 클릭 후 완료 신호 확인`, result: '완료 신호 없음',
+          화면: lastUploadState?.text || '(읽지 못함)', 버튼: lastUploadState?.actions || uploadClick.actions,
+          통신: lastUploadState ? `요청 ${lastUploadState.requests} · 성공 ${lastUploadState.successes} · 실패 ${lastUploadState.failures}` : '읽지 못함' });
+        throw new Error('증빙 업로드가 완료되지 않았어요');
+      }
       uploadTab = null;
-      onProgress('야근 증빙 첨부', { try: file.name, result: '첨부 완료' });
+      onProgress('야근 증빙 첨부', { try: file.name, result: `첨부 완료 · ${uploadDoneBy}` });
     }
 
     onProgress('결재선 선택', { try: '결재요청 → 법인카드 지출결의서' });
