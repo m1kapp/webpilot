@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05s';
+const BUILD = '2026-08-05t';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -894,7 +894,7 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
   if (!targets.length) throw new Error('결재 올릴 인정 건이 없어요');
   onProgress('상신 대상 다시 확인', { try: `${useName} ${targets.length}건` });
   const { appTab, frameId, shouldClose } = await openCardApp(month, onProgress);
-  let modalFrame = null, uploadTab = null, approvalTab = null;
+  let modalFrame = null, uploadTab = null, approvalTab = null, keepAppOpen = false;
   try {
     await loadPendingRows(appTab, frameId);
     await installDialogCapture(appTab, frameId);
@@ -969,6 +969,25 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       위치: purposeFrame === modalFrame ? '결의 모달 프레임' : `하위 프레임 ${purposeFrame}` });
 
     if (kind === 'yagun') {
+      // Bizplay의 platform 파일 브리지는 브라우저 자동 주입과 실서비스 동작이 달랐다.
+      // 더 추측하지 않고 결의서·용도까지 준비한 실제 화면을 사용자에게 넘긴다.
+      onProgress('수동 마무리 화면 열기', { try: '증빙 PNG 준비 · 결의서 화면 유지' });
+      const manualFile = proofFile?.base64 && proofFile?.type === 'image/png'
+        ? proofFile : await renderTaxiEvidenceFile(targets, month);
+      await chrome.storage.session.set({ webwingEvidencePreview: manualFile });
+      for (const id of new Set([frameId, modalFrame].filter((x) => x != null))) {
+        await evaluate(appTab, () => { window.__webwingDialogRestore?.(); }, undefined,
+          { frameId: id, world: 'MAIN' }).catch(() => {});
+      }
+      keepAppOpen = true;
+      await chrome.tabs.update(appTab, { active: true }).catch(() => {});
+      onProgress('수동 마무리 화면 열기', { try: '카드영수증 결의서', result: '열어둠 · 파일첨부와 결재요청만 직접 진행' });
+      return { recipe: 'expense-manual-finish', kind, month, prepared: targets,
+        proofFile: manualFile, appTabId: appTab,
+        summary: { prepared: targets.length, approvals: 0,
+          amount: targets.reduce((s, x) => s + Number(x.amount || 0), 0) } };
+
+      /* istanbul ignore next -- 자동 첨부는 실서비스에서 사용하지 않는 이전 경로 */
       onProgress('야근 증빙 첨부', { try: '타임인아웃 근태 증빙 PNG 생성' });
       const file = proofFile?.base64 && proofFile?.type === 'image/png'
         ? proofFile : await renderTaxiEvidenceFile(targets, month);
@@ -1116,7 +1135,7 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
   } finally {
     if (uploadTab != null && await tabAlive(uploadTab)) await closeTab(uploadTab);
     if (approvalTab != null && await tabAlive(approvalTab)) await closeTab(approvalTab);
-    if (shouldClose) await closeTab(appTab);
+    if (shouldClose && !keepAppOpen) await closeTab(appTab);
   }
 }
 

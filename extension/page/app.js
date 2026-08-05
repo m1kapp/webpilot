@@ -237,14 +237,14 @@ async function execute(auto) {
 }
 
 // 실제 시스템 쓰기는 조회와 분리한다. 결과 화면의 버튼 → 경고 확인 버튼을 거친 뒤에만 이 함수가 호출된다.
-async function runWriteAction({ payload, steps, label, render }) {
+async function runWriteAction({ payload, steps, label, render, subtitle = '실제 제출' }) {
   const owner = current;
   trace = [];
   traceStart = Date.now();
   buildSteps({ steps });
   $('run-ic').innerHTML = autoIcon(owner || {});
   $('run-lb').textContent = label;
-  $('run-sb').textContent = '실제 제출';
+  $('run-sb').textContent = subtitle;
   $('run-err').hidden = true;
   $('run-actions').hidden = true;
   $('run-live').hidden = true;
@@ -715,13 +715,15 @@ function renderExpense(d, kind) {
       </button>
     </div>` : ''}
     <div class="card write-card" id="expense-write">
-      <div class="write-title">${isTaxi ? '야근교통비' : '야근식비'} 결재 올리기</div>
-      <div class="write-desc">인정 건을 모두 선택해 <b>결재 1건</b>으로 묶습니다.${isTaxi ? ' 타임인아웃 근태 증빙 PNG도 자동 첨부합니다.' : ''}</div>
+      <div class="write-title">${isTaxi ? '야근교통비 결의서 준비하기' : '야근식비 결재 올리기'}</div>
+      <div class="write-desc">인정 건을 모두 선택해 <b>결재 1건</b>으로 묶습니다.${isTaxi
+        ? ' 용도 입력과 증빙 PNG 생성까지 자동으로 하고, 파일첨부·결재요청은 열린 Bizplay 화면에서 직접 마무리합니다.' : ''}</div>
       <button class="btn btn-primary" id="expense-submit-open">상신 대상 확인</button>
       <div class="write-confirm" id="expense-submit-confirm" hidden>
         <b id="expense-submit-warning"></b>
-        <p>이 작업은 비즈플레이에서 결의서를 만들고 결재선 ‘법인카드 지출결의서’로 실제 상신합니다.</p>
-        <div class="write-buttons"><button class="btn btn-danger" id="expense-submit-go">확인하고 실제 상신</button>
+        <p>${isTaxi ? '결의서와 용도만 준비하며 자동 상신하지 않습니다. 열린 Bizplay 화면에서 증빙을 첨부한 뒤 직접 결재요청하세요.'
+          : '이 작업은 비즈플레이에서 결의서를 만들고 결재선 ‘법인카드 지출결의서’로 실제 상신합니다.'}</p>
+        <div class="write-buttons"><button class="btn ${isTaxi ? 'btn-primary' : 'btn-danger'}" id="expense-submit-go">${isTaxi ? '결의서 준비하고 화면 열기' : '확인하고 실제 상신'}</button>
           <button class="btn btn-ghost" id="expense-submit-cancel">취소</button></div>
       </div>
     </div>`;
@@ -757,14 +759,18 @@ function renderExpense(d, kind) {
   } else {
     open.textContent = `${targets.length}건 · ${amount.toLocaleString('en-US')}원 대상 확인`;
     open.onclick = () => {
-      $('expense-submit-warning').textContent = `${targets.length}건 · ${amount.toLocaleString('en-US')}원을 결재 1건으로 실제 상신합니다`;
+      $('expense-submit-warning').textContent = isTaxi
+        ? `${targets.length}건 · ${amount.toLocaleString('en-US')}원 결의서를 준비하고 수동 마무리 화면을 엽니다`
+        : `${targets.length}건 · ${amount.toLocaleString('en-US')}원을 결재 1건으로 실제 상신합니다`;
       $('expense-submit-confirm').hidden = false; open.hidden = true;
     };
     $('expense-submit-cancel').onclick = () => { $('expense-submit-confirm').hidden = true; open.hidden = false; };
     $('expense-submit-go').onclick = () => runWriteAction({
       payload: { type: 'expense-submit', kind, month: d.month, items: targets, proofFile: isTaxi ? d.proofFile : null },
-      label: `${isTaxi ? '야근교통비' : '야근식비'} 상신`,
-      steps: ['상신 대상 다시 확인', '결의서 작성', '용도 입력', ...(isTaxi ? ['야근 증빙 첨부'] : []), '결재선 선택', '상신 완료 확인'],
+      label: isTaxi ? '야근교통비 결의서 준비' : '야근식비 상신',
+      subtitle: isTaxi ? '수동 마무리 준비' : '실제 제출',
+      steps: isTaxi ? ['상신 대상 다시 확인', '결의서 작성', '용도 입력', '수동 마무리 화면 열기']
+        : ['상신 대상 다시 확인', '결의서 작성', '용도 입력', '결재선 선택', '상신 완료 확인'],
       render: renderExpenseSubmit,
     });
   }
@@ -772,6 +778,25 @@ function renderExpense(d, kind) {
 
 function renderExpenseSubmit(d) {
   const s = d.summary || {}, isTaxi = d.kind === 'yagun';
+  if (d.recipe === 'expense-manual-finish') {
+    const file = d.proofFile || {};
+    $('view-result').innerHTML = `<div class="card">
+      <h2>결의서 준비 완료<span class="side">${esc(d.month || '')}</span></h2>
+      <div class="kpis"><div class="kpi"><div class="l">준비한 영수증</div><div class="v" style="color:var(--ok)">${s.prepared ?? 0}건</div>
+        <div class="l">${Number(s.amount || 0).toLocaleString('en-US')}원</div></div>
+        <div class="kpi"><div class="l">자동 상신</div><div class="v" style="font-size:19px;color:var(--muted)">안 함</div></div></div>
+      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">Bizplay 결의서에 ${s.prepared ?? 0}건과 용도 ‘야근교통비’를 입력해 두었습니다. 실제 상신은 아직 하지 않았어요.</p>
+    </div><div class="card write-card">
+      <div class="write-title">마지막 두 단계만 직접 해주세요</div>
+      <div class="write-desc">① 증빙 PNG 다운로드 → ② 열린 카드영수증 결의서에서 파일첨부 → ③ 결재요청</div>
+      <div class="write-buttons">
+        <a class="btn btn-primary" id="manual-proof-download" href="data:${esc(file.type || 'image/png')};base64,${file.base64 || ''}" download="${esc(file.name || 'webwing-yagun-evidence.png')}">증빙 PNG 다운로드</a>
+        <button class="btn btn-ghost" id="manual-open-bizplay" type="button">카드영수증 결의서 열기</button>
+      </div>
+    </div>`;
+    $('manual-open-bizplay').onclick = () => chrome.tabs.update(Number(d.appTabId), { active: true }).catch(() => {});
+    return;
+  }
   $('view-result').innerHTML = `<div class="card">
     <h2>${isTaxi ? '야근교통비' : '야근식비'} 상신 완료<span class="side">${esc(d.month || '')}</span></h2>
     <div class="kpis"><div class="kpi"><div class="l">상신한 영수증</div><div class="v" style="color:var(--ok)">${s.submitted ?? 0}건</div>

@@ -600,14 +600,29 @@ const noExpenseBeforeTaxiConfirm = expenseSubmitRequests === 0;
 await page.click('#expense-submit-open');
 const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
 await page.click('#expense-submit-go');
-await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || '')
+await page.waitForFunction(() => /결의서 준비 완료/.test(document.getElementById('view-result')?.innerText || '')
   || !document.getElementById('run-err')?.hidden, { timeout: 90000 });
 const taxiSubmitError = await page.$eval('#run-err', (e) => e.hidden ? '' : e.innerText.replace(/\s+/g, ' '));
 if (taxiSubmitError) {
   const live = await page.$$eval('#run-live div', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ')).join(' | '));
-  throw new Error(`야근택시 상신 실패 — ${taxiSubmitError} — ${live}`);
+  throw new Error(`야근택시 결의서 준비 실패 — ${taxiSubmitError} — ${live}`);
 }
-const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1 && inlineUploadLoads === 1;
+const taxiManualResult = await page.$eval('#view-result', (e) => e.innerText.replace(/\s+/g, ' '));
+const taxiManualDownload = await page.$eval('#manual-proof-download', (a) => ({
+  href: a.getAttribute('href') || '', download: a.getAttribute('download') || '', visible: !!a.offsetParent,
+})).catch(() => ({ href: '', download: '', visible: false }));
+const preparedAppTab = ctx.pages().find((p) => /webank\.appplay\.co\.kr/.test(p.url()));
+const taxiNoAutoWrite = expenseSubmitRequests === 0 && expenseUploadRequests === 0 && inlineUploadLoads === 0;
+const taxiManualReady = taxiNoAutoWrite
+  && /자동 상신 안 함/.test(taxiManualResult)
+  && taxiManualDownload.visible && taxiManualDownload.href.startsWith('data:image/png;base64,')
+  && /\.png$/.test(taxiManualDownload.download)
+  && !!preparedAppTab && !preparedAppTab.isClosed();
+await page.click('#manual-open-bizplay');
+await page.waitForTimeout(200);
+const preparedAppOpened = !!preparedAppTab && !preparedAppTab.isClosed();
+// 이후 식비 자동 상신 검사가 준비된 택시 결의서 상태의 영향을 받지 않게 테스트에서만 닫는다.
+if (preparedAppTab && !preparedAppTab.isClosed()) await preparedAppTab.close();
 // 실행 중 "무엇을 시도했는지"가 실시간으로 쌓였는지 — 오래 걸리는 단계에서 멈춘 건지
 // 도는 건지 사용자가 구분할 수 있어야 한다. (결과로 넘어가면 사라지므로 다시 한 번 관찰)
 await page.goto(`chrome-extension://${extId}/page/index.html`);
@@ -639,7 +654,7 @@ await page.click('#expense-submit-open');
 const mealConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
 await page.click('#expense-submit-go');
 await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || ''), { timeout: 90000 });
-const mealSubmitOk = expenseSubmitRequests === beforeMealSubmit + 1 && expenseUploadRequests === 1;
+const mealSubmitOk = expenseSubmitRequests === beforeMealSubmit + 1 && expenseUploadRequests === 0;
 // 5건 후보(점심·고액 제외). 저녁+야근 1건, 조식+이른출근 1건 = 인정 2건.
 const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
   && yasik.rows.filter((r) => r.endsWith('✓')).length === 2
@@ -651,8 +666,9 @@ checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수�
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
-  ['platform 팝업의 BBFileElement 증빙 업로드', inlineUploadLoads === 1],
-  ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
+  ['야근택시 자동 첨부·상신 없음', taxiNoAutoWrite],
+  ['야근택시 수동 마무리 안내·증빙 다운로드', taxiManualReady],
+  ['준비한 Bizplay 결의서 탭 유지·다시 열기', preparedAppOpened],
   ['야근식비 상신 확인 UI', mealConfirmVisible],
   ['야근식비 결재 상신', mealSubmitOk]);
 
