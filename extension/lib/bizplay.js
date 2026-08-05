@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05n';
+const BUILD = '2026-08-05o';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -497,6 +497,40 @@ async function waitTabClosed(tabId, tries = 22) {
   return false;
 }
 
+// 구형 Bizplay 팝업은 window.open('', name) 뒤 form target=name으로 POST한다.
+// 합성 클릭에서는 그 빈 창이 차단되므로, 캡처한 폼을 같은 appplay 출처의 새 탭에서
+// _self로 다시 제출해 쿠키·hidden field를 그대로 살린다.
+async function openCapturedFormTab(form) {
+  if (!form?.action || !/^https:\/\/(?:[^/]+\.)?(?:appplay|bizplay)\.co\.kr\//i.test(form.action)) return null;
+  let seed;
+  try {
+    const base = new URL(form.baseUrl || form.action);
+    seed = base.href;
+  } catch { return null; }
+  const tabId = await openTab(seed).catch(() => null);
+  if (tabId == null) return null;
+  const submitted = await evaluate(tabId, (spec) => {
+    const f = document.createElement('form');
+    f.method = spec.method || 'POST'; f.action = spec.action; f.target = '_self';
+    if (spec.enctype) f.enctype = spec.enctype;
+    for (const [name, value] of spec.fields || []) {
+      const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value;
+      f.appendChild(input);
+    }
+    document.documentElement.appendChild(f);
+    HTMLFormElement.prototype.submit.call(f);
+    return true;
+  }, form, { world: 'MAIN' }).catch(() => false);
+  if (!submitted) { await closeTab(tabId); return null; }
+  await sleep(600);
+  for (let i = 0; i < 50; i++) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab || tab.status === 'complete') break;
+    await sleep(250);
+  }
+  return tabId;
+}
+
 // 비즈플레이 팝업도 신뢰 사용자 제스처를 요구해 합성 click의 window.open이 차단된다.
 // MAIN world에서 URL을 가로챈 뒤 확장이 직접 탭을 열면 업로드·결재선 화면을 이어갈 수 있다.
 async function openCapturedPopup(tabId, frameId, buttonText) {
@@ -505,21 +539,56 @@ async function openCapturedPopup(tabId, frameId, buttonText) {
   const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(tab.id); };
   chrome.tabs.onCreated.addListener(onCreated);
   const createdTimer = setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(null); }, 2600);
-  const url = await evaluate(tabId, (label) => new Promise((resolve) => {
-    const orig = window.open; let done = false;
-    const finish = (u) => { if (done) return; done = true; window.open = orig; resolve(u || ''); };
+  const captured = await evaluate(tabId, (label) => new Promise((resolve) => {
+    const origOpen = window.open;
+    const origSubmit = HTMLFormElement.prototype.submit;
+    const origRequestSubmit = HTMLFormElement.prototype.requestSubmit;
+    let done = false, pendingUrl = '';
+    const snapshotForm = (form, submitter) => {
+      const data = new FormData(form);
+      if (submitter?.name) data.append(submitter.name, submitter.value || '');
+      return { action: new URL(form.action || location.href, location.href).href,
+        method: (form.method || 'POST').toUpperCase(), enctype: form.enctype || '', baseUrl: location.href,
+        fields: [...data.entries()].filter(([, v]) => typeof v === 'string') };
+    };
+    const restore = () => {
+      window.open = origOpen;
+      HTMLFormElement.prototype.submit = origSubmit;
+      if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = origRequestSubmit;
+      document.removeEventListener('submit', onSubmit, true);
+    };
+    const finish = (value) => { if (done) return; done = true; restore(); resolve(value || {}); };
+    const onSubmit = (event) => {
+      event.preventDefault();
+      finish({ form: snapshotForm(event.target, event.submitter) });
+    };
+    document.addEventListener('submit', onSubmit, true);
     window.open = function (u) {
       let href = ''; try { href = u ? new URL(u, location.href).href : ''; } catch {}
-      finish(href); return { closed: false, focus() {}, close() {} };
+      if (href) pendingUrl = href;
+      const locationStub = {};
+      Object.defineProperty(locationStub, 'href', { set(v) {
+        try { pendingUrl = new URL(v, location.href).href; } catch {}
+      }, get() { return pendingUrl; } });
+      const popup = { closed: false, focus() {}, close() {} };
+      Object.defineProperty(popup, 'location', { set(v) {
+        try { pendingUrl = new URL(v, location.href).href; } catch {}
+      }, get() { return locationStub; } });
+      return popup;
+    };
+    HTMLFormElement.prototype.submit = function () { finish({ form: snapshotForm(this) }); };
+    if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = function (submitter) {
+      finish({ form: snapshotForm(this, submitter) });
     };
     const el = [...document.querySelectorAll('a,button,input[type=button],input[type=submit]')]
       .find((e) => (e.textContent || e.value || '').replace(/\s+/g, '').includes(label.replace(/\s+/g, '')) && e.offsetParent !== null);
-    if (!el) return finish('');
-    el.click(); setTimeout(() => finish(''), 1800);
-  }), buttonText, { frameId, world: 'MAIN' }).catch(() => '');
+    if (!el) return finish({});
+    el.click(); setTimeout(() => finish(pendingUrl ? { url: pendingUrl } : {}), 1800);
+  }), buttonText, { frameId, world: 'MAIN' }).catch(() => ({}));
   const createdId = await created;
   clearTimeout(createdTimer);
-  if (url) return openTab(url).catch(() => null);
+  if (captured?.form) return openCapturedFormTab(captured.form);
+  if (captured?.url) return openTab(captured.url).catch(() => null);
   if (createdId != null) {
     await chrome.tabs.update(createdId, { active: false }).catch(() => {});
     for (let i = 0; i < 20; i++) {
@@ -552,6 +621,10 @@ async function findFrameWithSelector(tabId, selector, tries = 10) {
   return { frameId: null, frames: [] };
 }
 
+// 앱 껍데기에 상시 존재하는 BBFileElement는 파일 선택을 네이티브 드라이버로 넘기는
+// 공용 브리지일 뿐 증빙 업로드 input이 아니다. 이걸 잡으면 파일 수만 1이 되고 요청은 0건이다.
+const UPLOAD_FILE_SELECTOR = 'input[type=file]:not(#BBFileElement):not([onchange*="_WE_DRIVER.changeFileList"])';
+
 // 버튼이 결의 모달의 어느 하위 프레임에 있든 찾아 클릭한다.
 // 파일첨부는 팝업뿐 아니라 같은 탭에 업로드 iframe을 만드는 변형도 지원한다.
 async function openUploadTarget(tabId, preferredFrame) {
@@ -563,8 +636,12 @@ async function openUploadTarget(tabId, preferredFrame) {
   }
   for (const frameId of frames) {
     const popup = await openCapturedPopup(tabId, frameId, '파일첨부');
-    if (popup != null) return { tabId: popup, frameId: 0, popup: true, actionFrame: frameId, scanned };
-    const inline = await findFrameWithSelector(tabId, 'input[type=file]', 4);
+    if (popup != null) {
+      const popupInput = await findFrameWithSelector(popup, UPLOAD_FILE_SELECTOR, 14);
+      if (popupInput.frameId != null) return { tabId: popup, frameId: popupInput.frameId, popup: true, actionFrame: frameId, scanned };
+      await closeTab(popup);
+    }
+    const inline = await findFrameWithSelector(tabId, UPLOAD_FILE_SELECTOR, 4);
     if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, actionFrame: frameId, scanned };
   }
   return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned };
@@ -623,7 +700,8 @@ async function readUploadProbe(tabId, frameId) {
       .filter((e) => e.offsetParent !== null)
       .map((e) => (e.textContent || e.value || e.getAttribute('alt') || e.getAttribute('title') || '')
         .replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12);
-    const input = document.querySelector('input[type=file]');
+    const input = [...document.querySelectorAll('input[type=file]')]
+      .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
     return { requests: p.requests || 0, successes: p.successes || 0, failures: p.failures || 0,
       submitted: p.submitted || 0, text: text.slice(0, 220), actions, url: location.href,
       hasFile: !!input, fileCount: input?.files?.length || 0,
@@ -793,7 +871,9 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       // 업로드한다. change 이벤트보다 먼저 감시를 켜야 그 요청의 성공을 놓치지 않는다.
       await installUploadProbe(upload.tabId, upload.frameId);
       const setFile = await evaluate(upload.tabId, (f) => {
-        const input = document.querySelector('input[type=file]'); if (!input) return false;
+        const input = [...document.querySelectorAll('input[type=file]')]
+          .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+        if (!input) return false;
         const bin = atob(f.base64), bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
@@ -821,18 +901,22 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
           const action = exact || textHit?.closest(actionable) || textHit
             || visible.find((e) => /업로드|첨부|추가|전송|등록|저장|확인/.test(label(e)));
           const actions = visible.map(label).filter(Boolean).slice(0, 16);
+          const fileInput = [...document.querySelectorAll('input[type=file]')]
+            .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
           if (!action || action.matches('input[type=file]')) {
-            return { clicked: false, actions, hasForm: !!document.querySelector('input[type=file]')?.form };
+            return { clicked: false, actions, hasForm: !!fileInput?.form };
           }
           const picked = label(action) || action.tagName.toLowerCase(); action.click();
-          return { clicked: true, label: picked, actions, hasForm: !!document.querySelector('input[type=file]')?.form };
+          return { clicked: true, label: picked, actions, hasForm: !!fileInput?.form };
         }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
         if (!uploadClick.clicked) await sleep(350);
       }
       // 텍스트 컨트롤도 없지만 file input이 form 안에 있으면 브라우저의 정식 submit 경로를 쓴다.
       if (!uploadClick.clicked && uploadClick.hasForm) {
         uploadClick = await evaluate(upload.tabId, () => {
-          const form = document.querySelector('input[type=file]')?.form;
+          const input = [...document.querySelectorAll('input[type=file]')]
+            .find((e) => e.id !== 'BBFileElement' && !/_WE_DRIVER\.changeFileList/.test(e.getAttribute('onchange') || ''));
+          const form = input?.form;
           if (!form) return { clicked: false, actions: [] };
           form.requestSubmit(); return { clicked: true, label: '첨부 폼 제출', actions: [] };
         }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));

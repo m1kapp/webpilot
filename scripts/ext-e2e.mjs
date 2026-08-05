@@ -203,10 +203,11 @@ const bzPurposeForm = `<!doctype html><html lang="ko"><body>
 ${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
   <input placeholder="선택"><a class="bt_purpose_cbList">목록보기</a>
   <a class="cb_item">야근교통비 (81200)</a><a class="cb_item">야근식비 (81300)</a></div>`).join('')}
+<form id="upload-form" method="post" action="/upload_inline.act" target="bizplay-upload"><input type="hidden" name="mode" value="evidence"></form>
 <button id="attach">파일첨부</button>
 <script>
 document.querySelectorAll('.cb_item').forEach(function(a){a.onclick=function(){a.parentElement.querySelector('input').value=a.textContent}});
-document.getElementById('attach').onclick=function(){var f=document.createElement('iframe');f.src='/upload_inline.act';document.body.appendChild(f)};
+document.getElementById('attach').onclick=function(){window.open('', 'bizplay-upload');document.getElementById('upload-form').submit()};
 <\/script></body></html>`;
 const bzUpload = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
 <script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.close()}<\/script></body></html>`;
@@ -637,7 +638,7 @@ checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수�
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
-  ['결의서 하위 프레임의 비표준 업로드 컨트롤', inlineUploadLoads === 1],
+  ['빈 팝업+POST 폼과 비표준 업로드 컨트롤', inlineUploadLoads === 1],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],
   ['야근식비 결재 상신', mealSubmitOk]);
