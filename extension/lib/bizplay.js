@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05h';
+const BUILD = '2026-08-05i';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -460,10 +460,14 @@ async function renderTaxiEvidenceFile(items, month) {
   const w = 1080, rowH = 46, h = 150 + Math.max(1, rows.length) * rowH + 60;
   const canvas = new OffscreenCanvas(w, h), c = canvas.getContext('2d');
   c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
-  c.fillStyle = '#1f2a44'; c.font = '700 28px sans-serif'; c.fillText('야근·휴일근무 택시비 증빙', 36, 48);
-  c.fillStyle = '#6b7488'; c.font = '16px sans-serif'; c.fillText(`${month} · 타임인아웃 실제 출퇴근 기록 기준`, 36, 79);
-  const cols = [36, 190, 330, 470, 650, 850];
-  const heads = ['야근일', '출근', '퇴근', '초과근무', '택시사용', '금액'];
+  // 출처를 글자만이 아니라 실제 타임인아웃 로고로도 식별한다.
+  const logo = await fetch(chrome.runtime.getURL('icons/svc-timeinout.png'))
+    .then((r) => r.blob()).then((b) => createImageBitmap(b)).catch(() => null);
+  if (logo) c.drawImage(logo, 34, 22, 42, 42);
+  c.fillStyle = '#1f2a44'; c.font = '700 28px sans-serif'; c.fillText('야근·휴일근무 택시비 증빙', 88, 48);
+  c.fillStyle = '#6b7488'; c.font = '16px sans-serif'; c.fillText(`${month} · 타임인아웃 실제 출퇴근 기록 기준`, 88, 79);
+  const cols = [36, 170, 300, 410, 525, 690, 890];
+  const heads = ['근무일', '구분', '출근', '퇴근', '초과근무', '택시사용', '금액'];
   c.fillStyle = '#eef2fb'; c.fillRect(28, 96, w - 56, 40);
   c.fillStyle = '#42506b'; c.font = '700 16px sans-serif'; heads.forEach((x, i) => c.fillText(x, cols[i], 122));
   c.font = '16px sans-serif';
@@ -471,7 +475,7 @@ async function renderTaxiEvidenceFile(items, month) {
     const y = 136 + i * rowH;
     c.fillStyle = i % 2 ? '#f8faff' : '#fff'; c.fillRect(28, y, w - 56, rowH);
     c.fillStyle = '#2b3448';
-    const vals = [r.yagunDate || '', r.yagunIn || '-', r.yagunOut || '-', r.otText || '-',
+    const vals = [r.yagunDate || '', r.isHoliday ? '휴일근무' : '야근', r.yagunIn || '-', r.yagunOut || '-', r.otText || '-',
       String(r.date || '').replace(/^\d{4}-/, ''), `${Number(r.amount || 0).toLocaleString('en-US')}원`];
     vals.forEach((x, j) => c.fillText(String(x), cols[j], y + 29));
     c.strokeStyle = '#dce2ef'; c.beginPath(); c.moveTo(28, y + rowH); c.lineTo(w - 28, y + rowH); c.stroke();

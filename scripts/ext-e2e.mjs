@@ -562,6 +562,14 @@ const taxiProofPreview = await page.$eval('#taxi-proof-preview img', (img) => ({
 const taxiProofPreviewOk = taxiProofPreview.src.startsWith('data:image/png;base64,')
   && taxiProofPreview.width > 500 && taxiProofPreview.height > 100;
 await page.screenshot({ path: '/tmp/ext-yagun-preview.png', fullPage: true });
+const proofTabPromise = ctx.waitForEvent('page', { timeout: 10000 });
+await page.click('#taxi-proof-open');
+const proofTab = await proofTabPromise;
+await proofTab.waitForSelector('#proof:not([hidden])', { timeout: 10000 });
+const proofLargeOk = await proofTab.$eval('#proof', (img) => img.naturalWidth === 1080 && img.naturalHeight > 100)
+  && await proofTab.isVisible('#download');
+await proofTab.screenshot({ path: '/tmp/ext-yagun-proof-large.png', fullPage: true });
+await proofTab.close();
 const noExpenseBeforeTaxiConfirm = expenseSubmitRequests === 0;
 await page.click('#expense-submit-open');
 const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
@@ -609,6 +617,7 @@ const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
 
 checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk],
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
+  ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],

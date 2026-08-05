@@ -142,7 +142,9 @@
     border:1px solid #d9dcec; border-radius:9px; font:inherit; font-size:12px; color:var(--ink); }
   .write-buttons { display:flex; flex-wrap:wrap; gap:8px; }
   .evidence-desc { margin:-3px 0 11px; color:var(--muted); font-size:12px; line-height:1.6; }
-  .evidence-preview a { display:block; overflow:hidden; border:1px solid #dce2ef; border-radius:11px; background:#f8faff; }
+  .evidence-open { display:block; width:100%; padding:0; overflow:hidden; border:1px solid #dce2ef;
+    border-radius:11px; background:#f8faff; cursor:zoom-in; }
+  .evidence-open:hover { border-color:#9bb7ff; box-shadow:0 7px 18px -13px rgba(42,89,210,.8); }
   .evidence-preview img { display:block; width:100%; height:auto; }
 
   /* 실행 전 월 선택 — 결과 상단의 작은 month input보다 먼저, 의도를 분명히 확인한다. */

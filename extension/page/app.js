@@ -687,9 +687,9 @@ function renderExpense(d, kind) {
     ${isTaxi && d.proofFile?.base64 ? `<div class="card evidence-preview" id="taxi-proof-preview">
       <h2>상신할 근태 증빙 <span class="side">클릭하면 크게 보기 ↗</span></h2>
       <p class="evidence-desc">위 인정 건을 타임인아웃 실제 출퇴근 기록과 묶은 이미지입니다. 실제 상신 때 아래 파일 그대로 첨부합니다.</p>
-      <a href="data:${esc(d.proofFile.type || 'image/png')};base64,${d.proofFile.base64}" target="_blank" rel="noopener noreferrer" title="근태 증빙 원본 열기">
+      <button class="evidence-open" id="taxi-proof-open" type="button" title="근태 증빙 크게 보기">
         <img src="data:${esc(d.proofFile.type || 'image/png')};base64,${d.proofFile.base64}" alt="${esc(d.month)} 야근택시 타임인아웃 근태 증빙">
-      </a>
+      </button>
     </div>` : ''}
     <div class="card write-card" id="expense-write">
       <div class="write-title">${isTaxi ? '야근교통비' : '야근식비'} 결재 올리기</div>
@@ -719,6 +719,12 @@ function renderExpense(d, kind) {
       <div class="cr-badge ${ok ? 'ok' : ''}" style="${ok ? '' : 'color:#c1c8d6'}">${ok ? '✓' : '–'}</div>
     </div>`;
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">후보가 없어요 🎉</div>`;
+
+  const proofOpen = $('taxi-proof-open');
+  if (proofOpen) proofOpen.onclick = async () => {
+    await chrome.storage.session.set({ webwingEvidencePreview: d.proofFile });
+    await chrome.tabs.create({ url: chrome.runtime.getURL('page/evidence.html') });
+  };
 
   const targets = rows.filter((x) => isTaxi ? x.hasProof : x.eligible);
   const amount = targets.reduce((sum, x) => sum + Number(x.amount || 0), 0);
