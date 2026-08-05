@@ -57,6 +57,7 @@ const loginLanding = `<!doctype html><html lang="ko"><body><h1>로그인</h1>
 <form><input type="password" name="Password"></form>
 <script>setTimeout(function(){ location.href='/__done'; }, 700)</script></body></html>`;
 let loggedIn = false; // 시작은 로그아웃 — 로그인 흐름을 검증한 뒤 목록/상세를 준다
+let rcardMainRequests = 0; // 열린 앱 탭 재사용 시 새 rcard_main GET이 나가면 안 된다
 
 // ── 초과근무용 가짜 페이지 ── (대상월 2026-06 가정)
 // 근태 카드: "MM.DD (요일) ... IN hh:mm OUT hh:mm ... 인정시간 …" 형태를 흉내
@@ -144,6 +145,14 @@ const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
 <iframe src="/eusr_9001.act" style="width:100%;height:700px;border:0"></iframe>
 </body></html>`;
 
+// 실계정에서 잡힌 실패 형태: 주소창의 rcard_main은 먼저 로드되지만 데이터 프레임은
+// 1.5초보다 늦게 생기고 URL에도 eusr_9001이 없다. 예전 코드는 이걸 만료 주소로 오판했다.
+const bzDelayedApp = `<!doctype html><html lang="ko"><body style="margin:0"><div>카드영수증 준비 중</div>
+<script>setTimeout(function () {
+  var f = document.createElement('iframe'); f.src = '/receipt_shell.act';
+  f.style = 'width:100%;height:700px;border:0'; document.body.appendChild(f);
+}, 2200);<\/script></body></html>`;
+
 const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-serif">
 <div>
   조회기간
@@ -193,7 +202,8 @@ const server = createServer(
 
     // 카드영수증 앱은 회사별 하위 도메인(appplay.co.kr)에서 돈다 — 실물이 그랬다.
     if ((req.headers.host || '').includes('appplay')) {
-      if (path === '/rcard_main.act') return res.end(bzFrame);
+      if (path === '/rcard_main.act') { rcardMainRequests++; return res.end(bzDelayedApp); }
+      if (path === '/receipt_shell.act') return res.end(bzFrame);
       return res.end('<!doctype html><body>appplay</body>');
     }
 
@@ -509,7 +519,7 @@ checks.push(['기억한 주소로 재실행', again.rows.length === 3],
 await page.evaluate(() => new Promise((r) => chrome.storage.local.remove('bizplayCardAppUrl', r)));
 const appTab = await ctx.newPage();
 await appTab.goto('https://webank.appplay.co.kr/rcard_main.act').catch(() => {});
-await appTab.waitForTimeout(800);
+await appTab.waitForTimeout(2800);
 const grabbed = await page.evaluate(async () => {
   const isReceiptListPage = () => {
     const t = document.body ? document.body.innerText || '' : '';
@@ -528,6 +538,18 @@ const grabbed = await page.evaluate(async () => {
 console.log('\n── 열려 있는 앱에서 주소 잡기 ──');
 console.log('  ' + (grabbed || '(못 잡음)'));
 checks.push(['열려 있는 앱 주소 인식', /rcard_main/.test(grabbed)]);
+
+// 이미 정상 목록이 열린 탭이 있으면 새 GET 탭을 만들지 말고 그 문맥을 사용해야 한다.
+// 사용자 탭이므로 수집 뒤에도 닫히면 안 된다.
+await page.evaluate((url) => new Promise((r) => chrome.storage.local.set({ bizplayCardAppUrl: url }, r)), grabbed);
+const rcardRequestsBeforeOpenTabRun = rcardMainRequests;
+const openTabRun = await runExpense('yagun');
+const userAppTabKept = !appTab.isClosed();
+const noNewRcardRequest = rcardMainRequests === rcardRequestsBeforeOpenTabRun;
+console.log('  열린 탭으로 조회:', /증빙 있음/.test(openTabRun.kpis) ? '✓' : '✗',
+  '· 새 GET 없음:', noNewRcardRequest ? '✓' : '✗', '· 사용자 탭 유지:', userAppTabKept ? '✓' : '✗');
+checks.push(['이미 열린 카드영수증 탭으로 조회', noNewRcardRequest && /증빙 있음/.test(openTabRun.kpis)],
+  ['조회 뒤 사용자 카드영수증 탭 유지', userAppTabKept]);
 await appTab.close();
 
 

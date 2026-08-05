@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05c';
+const BUILD = '2026-08-05d';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -112,6 +112,57 @@ function looksLikeReceiptList() {
 const hasPendingTable = (tabId, frameId) =>
   evaluate(tabId, looksLikeReceiptList, undefined, { frameId }).catch(() => false);
 
+// 카드영수증 앱은 회사별로 프레임 URL·이름이 다르고, 최상위 로드 완료 뒤에도
+// 내부 앱을 몇 초 늦게 붙이는 경우가 있다. eusr_9001이라는 이름만 기다리면
+// 주소는 맞는데도 "미결의 목록 아님"으로 너무 일찍 닫아 버린다.
+// 모든 프레임을 내용으로 반복 검사해 실제 목록이 나타난 프레임을 돌려준다.
+async function receiptFrameOnce(tabId) {
+  const hits = await evaluateAllFrames(tabId, () => {
+    const text = document.body?.innerText || '';
+    const datedRows = [...document.querySelectorAll('table tr')].filter((tr) =>
+      tr.querySelectorAll('td').length >= 8 && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || '')).length;
+    const score = (/대기\s*\(\d+\)/.test(text) ? 4 : 0)
+      + (/결의상태/.test(text) ? 3 : 0)
+      + (document.querySelector('#tableList') ? 2 : 0)
+      + (document.querySelector('#paging_size') ? 1 : 0)
+      + (datedRows ? 4 : 0);
+    return { url: location.href, score, datedRows };
+  }).catch(() => []);
+  const best = hits.filter((h) => h.result?.score > 0)
+    .sort((a, b) => b.result.score - a.result.score)[0];
+  return best ? { frameId: best.frameId, frameCount: hits.length, url: best.result.url } : null;
+}
+
+async function waitForReceiptFrame(tabId, onProgress = () => {}, label = '카드영수증 화면 로딩',
+  { tries = 20, gap = 600 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    if (i === 0 || i % 5 === 4) onProgress(STEP, { try: `${label} (${i + 1}/${tries})` });
+    const best = await receiptFrameOnce(tabId);
+    if (best) {
+      onProgress(STEP, { try: label, result: `목록 찾음 · 프레임 ${best.frameCount}개 검사` });
+      return best.frameId;
+    }
+    await sleep(gap);
+  }
+  return null;
+}
+
+// 사용자가 이미 정상 카드영수증 화면을 열어 둔 경우 그 탭의 앱 초기화 문맥을 그대로 쓴다.
+// rcard_main.act를 새 탭에 GET으로 다시 열면 주소는 같아도 목록이 안 뜨는 회사 설정이 있다.
+// 사용자 탭이므로 수집이 끝나도 닫지 않는다.
+async function findOpenReceiptTab(excludeTabId) {
+  const tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS }).catch(() => []);
+  // 눈앞의 활성 탭부터. 실패 시도가 만든 빈 카드영수증 탭보다 사람이 연 정상 탭을 먼저 잡는다.
+  tabs.sort((a, b) => Number(b.active) - Number(a.active));
+  for (const tab of tabs) {
+    if (tab.id == null || tab.id === excludeTabId || !tab.url
+      || /main_0003|bizpr_main/.test(tab.url)) continue;
+    const found = await receiptFrameOnce(tab.id);
+    if (found) return { tabId: tab.id, frameId: found.frameId, url: tab.url };
+  }
+  return null;
+}
+
 // 런처 → 카드영수증 앱(새 탭 또는 같은 페이지 iframe) → 데이터 프레임.
 // 대상월로 날짜범위까지 세팅한 frame 참조 반환.
 async function openCardApp(month, onProgress) {
@@ -131,19 +182,28 @@ async function openCardApp(month, onProgress) {
   }
 
   onProgress('카드영수증 앱 여는 중');
+  // 최우선: 이미 열려 있고 실제 목록까지 보이는 탭. 주소만 재사용하는 것보다 확실하다.
+  const opened = await findOpenReceiptTab(launcher);
+  if (opened) {
+    await closeTab(launcher);
+    await setCardAppUrl(opened.url);
+    onProgress(STEP, { try: '열려 있는 카드영수증 탭 사용', result: '미결의 목록 찾음' });
+    onProgress(STEP, { '앱 주소': opened.url, '연 방법': '이미 열려 있는 탭', '데이터 프레임': opened.frameId });
+    return finishCardApp(opened.tabId, opened.frameId, month, false);
+  }
   // 0순위: 지난번에 사람이 열어 준 주소. 아직 유효하면 클릭을 아예 건너뛴다.
   const saved = await getCardAppUrl();
   if (saved) {
     onProgress(STEP, { try: `기억해 둔 주소로 열기: ${saved.replace(/^https?:\/\//, '').slice(0, 50)}` });
     const t = await openTab(saved).catch(() => null);
     if (t != null) {
-      const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
-      if (await hasPendingTable(t, fid ?? 0)) {
+      const fid = await waitForReceiptFrame(t, onProgress, '기억한 주소의 목록 기다리는 중');
+      if (fid != null) {
         await closeTab(launcher);
-        onProgress('카드영수증 앱 여는 중', { '앱 주소': saved, '연 방법': '기억해 둔 주소' });
-        return finishCardApp(t, fid, month);
+        onProgress('카드영수증 앱 여는 중', { '앱 주소': saved, '연 방법': '기억해 둔 주소', '데이터 프레임': fid });
+        return finishCardApp(t, fid, month, true);
       }
-      onProgress(STEP, { try: '기억해 둔 주소', result: '미결의 목록이 아님(만료된 듯)' });
+      onProgress(STEP, { try: '기억해 둔 주소', result: '12초 기다렸지만 목록을 못 찾음' });
       await closeTab(t);
     }
   }
@@ -268,9 +328,8 @@ async function openCardApp(month, onProgress) {
       onProgress(STEP, { try: `후보 열어보기: ${url.replace(/^https?:\/\//, '').slice(0, 45)}` });
       const t = await openTab(url).catch(() => null);
       if (t == null) continue;
-      const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
-      const ok = fid != null ? await hasPendingTable(t, fid) : await hasPendingTable(t, 0);
-      if (ok) { appTabId = t; if (fid != null) inlineFrame = { frameId: fid, url }; break; }
+      const fid = await waitForReceiptFrame(t, onProgress, '후보 주소의 목록 기다리는 중', { tries: 12, gap: 600 });
+      if (fid != null) { appTabId = t; inlineFrame = { frameId: fid, url }; break; }
       onProgress(STEP, { try: '후보 확인', result: '미결의 목록 아님' });
       await closeTab(t);
     }
@@ -323,14 +382,7 @@ async function openCardApp(month, onProgress) {
     frameId = await findFrame(appTabId, 'eusr_9001', { tries: 8 });
   }
   if (frameId == null || !(await hasPendingTable(appTabId, frameId))) {
-    const byContent = await evaluateAllFrames(appTabId, () => ({
-      url: location.href,
-      score: (/대기\s*\(\d+\)/.test(document.body?.innerText || '') ? 2 : 0)
-        + (document.querySelector('#tableList') ? 2 : 0)
-        + (document.querySelector('#paging_size') ? 1 : 0),
-    })).catch(() => []);
-    const best = byContent.filter((f) => f.result?.score > 0).sort((a, b) => b.result.score - a.result.score)[0];
-    if (best) frameId = best.frameId;
+    frameId = await waitForReceiptFrame(appTabId, onProgress, '앱 안의 미결의 목록 기다리는 중');
   }
   if (frameId == null) {
     const frames = await listFrames(appTabId);
@@ -352,11 +404,11 @@ async function openCardApp(month, onProgress) {
   });
   // 다음부터는 클릭 없이 바로 열 수 있게 기억해 둔다.
   if (appUrl && !/main_0003|bizpr_main/.test(appUrl)) await setCardAppUrl(appUrl);
-  return finishCardApp(appTabId, frameId, month);
+  return finishCardApp(appTabId, frameId, month, true);
 }
 
 // 데이터 프레임에 대상월 날짜 범위를 넣고 참조를 돌려준다. 어느 경로로 열었든 여기로 모인다.
-async function finishCardApp(appTab, frameId, month) {
+async function finishCardApp(appTab, frameId, month, shouldClose) {
   await sleep(1500);
   const [y, m] = month.split('-').map(Number);
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -366,7 +418,7 @@ async function finishCardApp(appTab, frameId, month) {
     ['START_DT', 'SHOW_START_DT', 'BASE_START_DT'].forEach((id) => set(id, r.s));
     ['END_DT', 'SHOW_END_DT', 'BASE_END_DT'].forEach((id) => set(id, r.e));
   }, { s: `${y}-${p2(m)}-01`, e: `${y}-${p2(m)}-${p2(last)}` }).catch(() => {});
-  return { appTab, frameId: frameId ?? 0 };
+  return { appTab, frameId: frameId ?? 0, shouldClose };
 }
 
 // '대기(n)' 탭 클릭 + 페이지 크기 키우기 + 행 스크래핑
@@ -427,7 +479,7 @@ function wrapHostPermission(e) {
 }
 
 export async function getYagunTaxi(month, onProgress = () => {}) {
-  const { appTab, frameId } = await openCardApp(month, onProgress);
+  const { appTab, frameId, shouldClose } = await openCardApp(month, onProgress);
   try {
     onProgress('미결의(대기) 조회 중');
     const rows = await loadPendingRows(appTab, frameId);
@@ -472,12 +524,12 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
       summary: { count: items.length, withProof: withProof.length, noProof: items.length - withProof.length,
         amount: submitAmt, amountText: submitAmt.toLocaleString('en-US') + '원', totalText: total.toLocaleString('en-US') + '원' },
     };
-  } catch (e) { throw wrapHostPermission(e); } finally { await closeTab(appTab); }
+  } catch (e) { throw wrapHostPermission(e); } finally { if (shouldClose) await closeTab(appTab); }
 }
 
 // ── 야근식비 (조회) ──
 export async function getYasik(month, onProgress = () => {}) {
-  const { appTab, frameId } = await openCardApp(month, onProgress);
+  const { appTab, frameId, shouldClose } = await openCardApp(month, onProgress);
   try {
     onProgress('미결의(대기) 조회 중');
     const rows = await loadPendingRows(appTab, frameId);
@@ -518,5 +570,5 @@ export async function getYasik(month, onProgress = () => {}) {
       summary: { count: items.length, eligible: eligible.length, excluded: items.length - eligible.length,
         amount, amountText: amount.toLocaleString('en-US') + '원', totalText: total.toLocaleString('en-US') + '원' },
     };
-  } catch (e) { throw wrapHostPermission(e); } finally { await closeTab(appTab); }
+  } catch (e) { throw wrapHostPermission(e); } finally { if (shouldClose) await closeTab(appTab); }
 }
