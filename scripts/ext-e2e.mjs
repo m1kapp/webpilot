@@ -300,7 +300,13 @@ await page.goto(`chrome-extension://${extId}/page/index.html`);
 async function launchAutomation(id, month = '2026-06') {
   await page.click(`.auto[data-id="${id}"]`);
   if (await page.isVisible('#month-dialog')) {
-    await page.$eval('#month-dialog-input', (el, value) => { el.value = value; }, month);
+    const [year, mm] = month.split('-').map(Number);
+    let shown = Number((await page.textContent('#month-dialog-year')).replace(/[^0-9]/g, ''));
+    while (shown !== year) {
+      await page.click(shown > year ? '#month-dialog-prev' : '#month-dialog-next');
+      shown = Number((await page.textContent('#month-dialog-year')).replace(/[^0-9]/g, ''));
+    }
+    await page.click(`#month-dialog-options [data-value="${year}-${String(mm).padStart(2, '0')}"]`);
     await page.click('#month-dialog-go');
   }
 }
@@ -328,10 +334,15 @@ const monthDialogs = [];
 for (const id of monthDialogIds) {
   await page.click(`.auto[data-id="${id}"]`);
   monthDialogs.push({ id, visible: await page.isVisible('#month-dialog'), title: await page.$eval('#month-dialog-title', (e) => e.textContent) });
+  if (id === 'overtime') await page.screenshot({ path: '/tmp/ext-month-picker.png', fullPage: true });
   await page.click('#month-dialog-cancel');
 }
 const monthDialogOk = monthDialogs.every((x) => x.visible && /기간 선택/.test(x.title));
+const customMonthPickerOk = await page.$$eval('#month-dialog-options .month-option', (els) => els.length) === 12
+  && await page.$eval('#month-dialog', (e) => !e.querySelector('input[type="month"]'))
+  && await page.isHidden('#month');
 console.log('  월 선택 다이얼로그 3개:', monthDialogOk ? '✓' : '✗');
+console.log('  커스텀 월 옵션 12개:', customMonthPickerOk ? '✓' : '✗');
 
 // '내 연차 현황' 실행 (로그아웃 상태이므로 먼저 로그인 필요가 떠야 함)
 await page.click('.auto[data-id="leave-personal"]');
@@ -693,6 +704,7 @@ console.log('\n── 상단바 버전 ──');
 console.log('  ' + (shownVer || '(없음)'));
 checks.push(['상단바에 버전 표시', /^v\d+\.\d+\.\d+/.test(shownVer)]);
 checks.push(['홈 카드에 서비스 로고·이름 칩', serviceChipOk], ['지정한 3개 자동화에 월 선택 다이얼로그', monthDialogOk]);
+checks.push(['브라우저 기본 셀렉터 없는 커스텀 월 옵션', customMonthPickerOk]);
 
 // 자동화 카드의 이름과 설명이 각자 줄을 갖는지. span에 display를 안 주면 한 줄로 붙어 흐른다.
 const cardLines = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => {

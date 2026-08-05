@@ -38,8 +38,9 @@
     font-size:19px; line-height:1; font-weight:700; border-radius:8px; }
   .topbar .back:hover { background:var(--soft); color:var(--ink); }
   .topbar .spacer { flex:1 1 auto; min-width:4px; }
-  .topbar input[type=month] { flex:none; font:inherit; font-size:12.5px; padding:5px 7px;
-    border:1px solid #d9dcec; border-radius:9px; background:#fff; color:var(--ink); }
+  .topbar .month-display { flex:none; padding:6px 9px; border:1px solid #d9dcec; border-radius:9px;
+    background:#fff; color:var(--ink); font:inherit; font-size:12.5px; font-weight:650; white-space:nowrap; }
+  .topbar .month-display:hover { border-color:#9bb7ff; color:var(--blue); background:#f8faff; }
   .body { flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:16px; }
 
   /* ── 홈: 자동화 목록 ── */
@@ -154,8 +155,17 @@
     border-radius:17px; box-shadow:0 22px 55px -24px rgba(20,28,48,.5); }
   .month-dialog-box h2 { margin:0 0 4px; font-size:16px; letter-spacing:-.2px; }
   .month-dialog-box p { margin:0 0 14px; color:var(--muted); font-size:12px; }
-  .month-dialog-box input[type=month] { width:100%; padding:10px 12px; border:1px solid #d6dbea;
-    border-radius:10px; background:#fff; color:var(--ink); font:inherit; font-size:14px; }
+  .month-picker-head { display:grid; grid-template-columns:38px 1fr 38px; align-items:center; gap:8px; margin:3px 0 11px; }
+  .month-year { text-align:center; font-size:15px; font-weight:800; letter-spacing:-.2px; }
+  .month-nav { width:38px; height:36px; border:1px solid #e0e5ef; border-radius:10px; background:#f8f9fc;
+    color:#6a7386; font-size:19px; line-height:1; }
+  .month-nav:hover { border-color:#b7c8f4; background:#f3f6ff; color:var(--blue); }
+  .month-options { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+  .month-option { min-height:40px; border:1px solid #e0e5ef; border-radius:10px; background:#fff;
+    color:#5d6678; font-size:13px; font-weight:700; }
+  .month-option:hover { border-color:#9bb7ff; background:#f6f8ff; color:var(--blue); }
+  .month-option.selected { border-color:var(--blue); background:var(--blue); color:#fff;
+    box-shadow:0 7px 14px -9px rgba(54,105,224,.75); }
   .month-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:15px; }
 
   /* 무엇이 어느 합계에서 빠졌는지 설명 */
@@ -325,6 +335,7 @@
     <div class="brand"><span class="wing">🪽</span><b id="brand-name">Webwing</b><span class="ver" id="app-ver"></span></div>
     <div class="spacer"></div>
     <input type="month" id="month" hidden />
+    <button type="button" class="month-display" id="month-display" hidden></button>
     <select id="year" hidden></select>
   </div>
 
@@ -359,7 +370,12 @@
   <div class="month-dialog-box">
     <h2 id="month-dialog-title">기간 선택</h2>
     <p id="month-dialog-desc">조회할 월을 선택해주세요.</p>
-    <input type="month" id="month-dialog-input" />
+    <div class="month-picker-head">
+      <button type="button" class="month-nav" id="month-dialog-prev" aria-label="이전 해">‹</button>
+      <div class="month-year" id="month-dialog-year"></div>
+      <button type="button" class="month-nav" id="month-dialog-next" aria-label="다음 해">›</button>
+    </div>
+    <div class="month-options" id="month-dialog-options" role="listbox" aria-label="월 선택"></div>
     <div class="month-dialog-actions">
       <button class="btn btn-ghost" id="month-dialog-cancel">취소</button>
       <button class="btn btn-primary" id="month-dialog-go">이 월로 조회</button>

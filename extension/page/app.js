@@ -103,21 +103,42 @@ function renderHome() {
 }
 
 // 월 단위 자동화 중 사용자가 지정한 세 기능은 실행 전에 월을 명시적으로 고른다.
-let monthDialogAuto = null;
+let monthDialogAuto = null, monthDialogYear = new Date().getFullYear(), monthDialogValue = '';
+function renderMonthOptions() {
+  $('month-dialog-year').textContent = `${monthDialogYear}년`;
+  $('month-dialog-options').innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const value = `${monthDialogYear}-${String(i + 1).padStart(2, '0')}`;
+    return `<button type="button" class="month-option${value === monthDialogValue ? ' selected' : ''}"
+      data-value="${value}" aria-pressed="${value === monthDialogValue}">${i + 1}월</button>`;
+  }).join('');
+}
 function openMonthDialog(auto) {
   monthDialogAuto = auto;
   $('month-dialog-title').textContent = `${auto.label} 기간 선택`;
   $('month-dialog-desc').textContent = '조회할 월을 선택해주세요.';
-  $('month-dialog-input').value = $('month').value;
+  monthDialogValue = $('month').value;
+  monthDialogYear = Number(monthDialogValue.slice(0, 4)) || new Date().getFullYear();
+  renderMonthOptions();
   $('month-dialog').hidden = false;
-  setTimeout(() => $('month-dialog-input').focus(), 30);
+  setTimeout(() => $('month-dialog-options').querySelector('.selected')?.focus(), 30);
 }
 function closeMonthDialog() { $('month-dialog').hidden = true; monthDialogAuto = null; }
 $('month-dialog-cancel').addEventListener('click', closeMonthDialog);
+$('month-dialog-prev').addEventListener('click', () => { monthDialogYear--; renderMonthOptions(); });
+$('month-dialog-next').addEventListener('click', () => { monthDialogYear++; renderMonthOptions(); });
+$('month-dialog-options').addEventListener('click', (e) => {
+  const btn = e.target.closest('.month-option');
+  if (!btn) return;
+  monthDialogValue = btn.dataset.value;
+  renderMonthOptions();
+  $('month-dialog-options').querySelector(`[data-value="${monthDialogValue}"]`)?.focus();
+});
+$('month-display').addEventListener('click', () => { if (current?.hasMonth) openMonthDialog(current); });
 $('month-dialog-go').addEventListener('click', () => {
-  const auto = monthDialogAuto, value = $('month-dialog-input').value;
+  const auto = monthDialogAuto, value = monthDialogValue;
   if (!auto || !/^\d{4}-\d{2}$/.test(value)) return;
   $('month').value = value;
+  $('month-display').textContent = `${monthLabel(value)} ▾`;
   closeMonthDialog();
   start(auto);
 });
@@ -145,7 +166,9 @@ function show(view) {
   for (const v of ['home', 'run', 'result']) $(`view-${v}`).hidden = v !== view;
   $('back').style.display = view === 'home' ? 'none' : 'inline-flex';
   $('year').hidden = !(view === 'result' && current?.hasYear);
-  $('month').hidden = !(view === 'result' && current?.hasMonth);
+  $('month').hidden = true; // 상태 보관용일 뿐, 브라우저 기본 월 셀렉터는 화면에 내지 않는다.
+  $('month-display').hidden = !(view === 'result' && current?.hasMonth);
+  if (!$('month-display').hidden) $('month-display').textContent = `${monthLabel($('month').value)} ▾`;
   // 자동화 안에서는 그 화면 이름이 제목이다. 브랜드는 왼쪽 아이콘으로만 남긴다 —
   // 브라우저 패널 헤더에 이미 "Webwing"이 떠 있어서 두 번 쓸 자리가 없다.
   $('topbar').classList.toggle('sub', view !== 'home');
