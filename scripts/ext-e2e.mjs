@@ -190,14 +190,20 @@ const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-se
   });
 <\/script></body></html>`;
 
+// 실화면처럼 결의 모달과 용도 폼을 다른 프레임으로 분리한다.
+// eapr_1001 프레임만 보는 구현은 용도 0개로 실패해야 하고, 전체 프레임 탐색만 통과한다.
 const bzApprovalModal = `<!doctype html><html lang="ko"><body>
-${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
-  <input placeholder="선택"><a class="bt_purpose_cbList">목록보기</a>
-  <a class="cb_item">야근교통비 (81200)</a><a class="cb_item">야근식비 (81300)</a></div>`).join('')}
+<iframe src="/purpose_form.act"></iframe>
 <button id="attach">파일첨부</button><button id="request">결재요청</button>
 <script>
 document.getElementById('attach').onclick=function(){window.open('/upload.act')};
 document.getElementById('request').onclick=function(){window.open('/approval_line.act')};
+<\/script></body></html>`;
+const bzPurposeForm = `<!doctype html><html lang="ko"><body>
+${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
+  <input placeholder="선택"><a class="bt_purpose_cbList">목록보기</a>
+  <a class="cb_item">야근교통비 (81200)</a><a class="cb_item">야근식비 (81300)</a></div>`).join('')}
+<script>
 document.querySelectorAll('.cb_item').forEach(function(a){a.onclick=function(){a.parentElement.querySelector('input').value=a.textContent}});
 <\/script></body></html>`;
 const bzUpload = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
@@ -235,6 +241,7 @@ const server = createServer(
       if (path === '/rcard_main.act') { rcardMainRequests++; return res.end(bzDelayedApp); }
       if (path === '/receipt_shell.act') return res.end(bzFrame);
       if (path === '/eapr_1001.act') return res.end(bzApprovalModal);
+      if (path === '/purpose_form.act') return res.end(bzPurposeForm);
       if (path === '/upload.act') return res.end(bzUpload);
       if (path === '/approval_line.act') return res.end(bzApprovalLine);
       if (path === '/__expense_upload') { expenseUploadRequests++; return res.end('ok'); }
@@ -549,6 +556,12 @@ async function runExpense(id, month = '2026-06') {
 
 console.log('\n── 야근택시 조회 ──');
 const yagun = await runExpense('yagun');
+const taxiProofPreview = await page.$eval('#taxi-proof-preview img', (img) => ({
+  src: img.getAttribute('src') || '', width: img.naturalWidth, height: img.naturalHeight,
+})).catch(() => ({ src: '', width: 0, height: 0 }));
+const taxiProofPreviewOk = taxiProofPreview.src.startsWith('data:image/png;base64,')
+  && taxiProofPreview.width > 500 && taxiProofPreview.height > 100;
+await page.screenshot({ path: '/tmp/ext-yagun-preview.png', fullPage: true });
 const noExpenseBeforeTaxiConfirm = expenseSubmitRequests === 0;
 await page.click('#expense-submit-open');
 const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
@@ -595,6 +608,7 @@ const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
   && /김밥천국/.test(yasik.rows.join(' '));             // 저녁 인정 분기가 실제로 돈다
 
 checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk],
+  ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],

@@ -684,6 +684,13 @@ function renderExpense(d, kind) {
       <div class="cr-list" id="ex-rows"></div>
       <p class="foot">미결의(대기)에서 ${isTaxi ? '심야택시(23~03시)' : '1인 식대(13,000 이내·저녁/조식)'}만.</p>
     </div>
+    ${isTaxi && d.proofFile?.base64 ? `<div class="card evidence-preview" id="taxi-proof-preview">
+      <h2>상신할 근태 증빙 <span class="side">클릭하면 크게 보기 ↗</span></h2>
+      <p class="evidence-desc">위 인정 건을 타임인아웃 실제 출퇴근 기록과 묶은 이미지입니다. 실제 상신 때 아래 파일 그대로 첨부합니다.</p>
+      <a href="data:${esc(d.proofFile.type || 'image/png')};base64,${d.proofFile.base64}" target="_blank" rel="noopener noreferrer" title="근태 증빙 원본 열기">
+        <img src="data:${esc(d.proofFile.type || 'image/png')};base64,${d.proofFile.base64}" alt="${esc(d.month)} 야근택시 타임인아웃 근태 증빙">
+      </a>
+    </div>` : ''}
     <div class="card write-card" id="expense-write">
       <div class="write-title">${isTaxi ? '야근교통비' : '야근식비'} 결재 올리기</div>
       <div class="write-desc">인정 건을 모두 선택해 <b>결재 1건</b>으로 묶습니다.${isTaxi ? ' 타임인아웃 근태 증빙 PNG도 자동 첨부합니다.' : ''}</div>
@@ -726,7 +733,7 @@ function renderExpense(d, kind) {
     };
     $('expense-submit-cancel').onclick = () => { $('expense-submit-confirm').hidden = true; open.hidden = false; };
     $('expense-submit-go').onclick = () => runWriteAction({
-      payload: { type: 'expense-submit', kind, month: d.month, items: targets },
+      payload: { type: 'expense-submit', kind, month: d.month, items: targets, proofFile: isTaxi ? d.proofFile : null },
       label: `${isTaxi ? '야근교통비' : '야근식비'} 상신`,
       steps: ['상신 대상 다시 확인', '결의서 작성', '용도 입력', ...(isTaxi ? ['야근 증빙 첨부'] : []), '결재선 선택', '상신 완료 확인'],
       render: renderExpenseSubmit,

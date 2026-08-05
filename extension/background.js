@@ -15,7 +15,7 @@ const RUNNERS = {
   'correction-submit': (msg, progress) => submitCorrections(msg.rows, msg.memo, progress),
   'yagun': (msg, progress) => getYagunTaxi(msg.month, progress),
   'yasik': (msg, progress) => getYasik(msg.month, progress),
-  'expense-submit': (msg, progress) => submitExpenseApproval(msg.kind, msg.month, msg.items, progress),
+  'expense-submit': (msg, progress) => submitExpenseApproval(msg.kind, msg.month, msg.items, msg.proofFile, progress),
 };
 
 // 툴바 아이콘 → 사이드 패널. 팝업과 달리 다른 곳을 클릭해도 닫히지 않아

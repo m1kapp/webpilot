@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05g';
+const BUILD = '2026-08-05h';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -522,9 +522,28 @@ async function installDialogCapture(tabId, frameId = 0) {
   }, undefined, { frameId, world: 'MAIN' }).catch(() => {});
 }
 
+// 결의 모달 자체(eapr_1001)와 용도 입력 폼이 서로 다른 하위 프레임인 실화면이 있다.
+// URL 이름을 더 추측하지 않고 모든 프레임에서 TRAN_KIND_CD·목록보기 신호를 찾아 실제 폼을 고른다.
+async function findPurposeFormFrame(tabId, tries = 18) {
+  let last = [];
+  for (let i = 0; i < tries; i++) {
+    last = await evaluateAllFrames(tabId, () => {
+      const signals = document.querySelectorAll(
+        '.purpose_combo,[id^="TRAN_KIND_CD"],[name^="TRAN_KIND_CD"],a.bt_purpose_cbList').length;
+      return { signals, url: location.href, title: document.title || '',
+        text: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 90) };
+    }).catch(() => []);
+    const hit = last.filter((x) => x.result?.signals > 0)
+      .sort((a, b) => b.result.signals - a.result.signals)[0];
+    if (hit) return { frameId: hit.frameId, signals: hit.result.signals, frames: last };
+    await sleep(450);
+  }
+  return { frameId: null, signals: 0, frames: last };
+}
+
 // 조회 결과에서 사용자가 두 번 확인한 뒤 호출되는 실제 결의 상신.
 // kind=yagun은 증빙 PNG 필수, yasik은 인정 건만 용도 바인딩 후 한 결재로 묶는다.
-export async function submitExpenseApproval(kind, month, items = [], onProgress = () => {}) {
+export async function submitExpenseApproval(kind, month, items = [], proofFile = null, onProgress = () => {}) {
   if (!['yagun', 'yasik'].includes(kind)) throw new Error('알 수 없는 경비 종류예요');
   const useName = kind === 'yagun' ? '야근교통비' : '야근식비';
   const targets = items.filter((x) => x?.key && x.amount > 0);
@@ -560,28 +579,55 @@ export async function submitExpenseApproval(kind, month, items = [], onProgress 
     await installDialogCapture(appTab, modalFrame);
 
     onProgress('용도 입력', { try: `모든 항목에 '${useName}' 선택` });
-    const comboCount = await evaluateFrame(appTab, modalFrame, () => document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]').length);
-    if (!comboCount) throw new Error('결의서의 용도 입력칸을 못 찾았어요');
+    const purposeForm = await findPurposeFormFrame(appTab);
+    if (purposeForm.frameId == null) {
+      onProgress('용도 입력', {
+        try: '결의서 전체 프레임에서 TRAN_KIND_CD·용도 콤보 검색', result: '입력칸 0개',
+        프레임: purposeForm.frames.map((x) => `${x.frameId} · ${x.result?.url || '?'} · 신호 ${x.result?.signals || 0}`),
+      });
+      throw new Error('결의서의 용도 입력칸을 못 찾았어요');
+    }
+    const purposeFrame = purposeForm.frameId;
+    const comboCount = await evaluateFrame(appTab, purposeFrame, () => {
+      const anchors = [...document.querySelectorAll('.purpose_combo,[id^="TRAN_KIND_CD"],[name^="TRAN_KIND_CD"],a.bt_purpose_cbList')];
+      const roots = anchors.map((el) => el.closest('.purpose_combo')
+        || (el.matches('input,select,a') ? el.closest('td,li,div') : el)).filter(Boolean);
+      return new Set(roots).size;
+    });
     for (let i = 0; i < comboCount; i++) {
-      await evaluateFrame(appTab, modalFrame, (idx) => document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]')[idx]
-        ?.querySelector('a.bt_purpose_cbList')?.click(), i);
+      await evaluateFrame(appTab, purposeFrame, (idx) => {
+        const anchors = [...document.querySelectorAll('.purpose_combo,[id^="TRAN_KIND_CD"],[name^="TRAN_KIND_CD"],a.bt_purpose_cbList')];
+        const roots = [...new Set(anchors.map((el) => el.closest('.purpose_combo')
+          || (el.matches('input,select,a') ? el.closest('td,li,div') : el)).filter(Boolean))];
+        const combo = roots[idx];
+        const btn = combo?.querySelector('a.bt_purpose_cbList,[class*="purpose"][class*="List"],button,[role="button"]');
+        btn?.click();
+      }, i);
       await sleep(450);
-      const bound = await evaluateFrame(appTab, modalFrame, ({ idx, use }) => {
-        const combo = document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]')[idx];
-        const opts = [...(combo?.querySelectorAll('a.cb_item') || [])];
+      const bound = await evaluateFrame(appTab, purposeFrame, ({ idx, use }) => {
+        const anchors = [...document.querySelectorAll('.purpose_combo,[id^="TRAN_KIND_CD"],[name^="TRAN_KIND_CD"],a.bt_purpose_cbList')];
+        const roots = [...new Set(anchors.map((el) => el.closest('.purpose_combo')
+          || (el.matches('input,select,a') ? el.closest('td,li,div') : el)).filter(Boolean))];
+        const combo = roots[idx];
+        const scoped = [...(combo?.querySelectorAll('a.cb_item,[role="option"],option') || [])];
+        const opts = scoped.length ? scoped : [...document.querySelectorAll('a.cb_item,[role="option"],option')];
         const opt = opts.find((e) => (e.textContent || '').includes(use) && e.offsetParent !== null)
           || opts.find((e) => (e.textContent || '').includes(use));
-        if (!opt) return false; opt.click();
-        const inp = combo.querySelector('input[placeholder*="선택"]');
-        return !!inp || true;
+        if (!opt) return false;
+        if (opt.tagName === 'OPTION') { const sel = opt.closest('select'); sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+        else opt.click();
+        const inp = combo?.querySelector('input[placeholder*="선택"],input:not([type=hidden]),select');
+        return !!inp;
       }, { idx: i, use: useName });
       if (!bound) throw new Error(`용도 '${useName}' 옵션을 못 찾았어요 (항목 ${i + 1})`);
     }
-    onProgress('용도 입력', { try: useName, result: `${comboCount}개 항목 선택 완료` });
+    onProgress('용도 입력', { try: useName, result: `${comboCount}개 항목 선택 완료`,
+      위치: purposeFrame === modalFrame ? '결의 모달 프레임' : `하위 프레임 ${purposeFrame}` });
 
     if (kind === 'yagun') {
       onProgress('야근 증빙 첨부', { try: '타임인아웃 근태 증빙 PNG 생성' });
-      const file = await renderTaxiEvidenceFile(targets, month);
+      const file = proofFile?.base64 && proofFile?.type === 'image/png'
+        ? proofFile : await renderTaxiEvidenceFile(targets, month);
       uploadTab = await openCapturedPopup(appTab, modalFrame, '파일첨부');
       if (uploadTab == null) throw new Error('증빙 파일첨부 창이 열리지 않았어요');
       const setFile = await evaluate(uploadTab, (f) => {
@@ -697,6 +743,7 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
         otText: worked ? fmt(otMin) : '', isHoliday: isHol, hasProof: worked };
     });
     const withProof = items.filter((x) => x.hasProof);
+    const proofFile = withProof.length ? await renderTaxiEvidenceFile(withProof, month).catch(() => null) : null;
     onProgress('타임인아웃 근태 매칭', {
       '증빙 있음': `${withProof.length}건`,
       '증빙 없음': `${items.length - withProof.length}건`,
@@ -705,7 +752,7 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
     const submitAmt = withProof.reduce((a, x) => a + x.amount, 0);
     const total = items.reduce((a, x) => a + x.amount, 0);
     return {
-      recipe: 'yagun', month, items,
+      recipe: 'yagun', month, items, proofFile,
       summary: { count: items.length, withProof: withProof.length, noProof: items.length - withProof.length,
         amount: submitAmt, amountText: submitAmt.toLocaleString('en-US') + '원', totalText: total.toLocaleString('en-US') + '원' },
     };
