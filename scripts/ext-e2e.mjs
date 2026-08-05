@@ -61,6 +61,7 @@ let rcardMainRequests = 0; // 열린 앱 탭 재사용 시 새 rcard_main GET이
 let correctionSubmitRequests = 0;
 let expenseSubmitRequests = 0;
 let expenseUploadRequests = 0;
+let inlineUploadLoads = 0;
 
 const correctionModifyPage = `<!doctype html><html lang="ko"><body>
 <input name="InOutData[0].inTimeApproval"><input name="InOutData[0].OutTimeApproval">
@@ -194,20 +195,23 @@ const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-se
 // eapr_1001 프레임만 보는 구현은 용도 0개로 실패해야 하고, 전체 프레임 탐색만 통과한다.
 const bzApprovalModal = `<!doctype html><html lang="ko"><body>
 <iframe src="/purpose_form.act"></iframe>
-<button id="attach">파일첨부</button><button id="request">결재요청</button>
+<button id="request">결재요청</button>
 <script>
-document.getElementById('attach').onclick=function(){window.open('/upload.act')};
 document.getElementById('request').onclick=function(){window.open('/approval_line.act')};
 <\/script></body></html>`;
 const bzPurposeForm = `<!doctype html><html lang="ko"><body>
 ${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
   <input placeholder="선택"><a class="bt_purpose_cbList">목록보기</a>
   <a class="cb_item">야근교통비 (81200)</a><a class="cb_item">야근식비 (81300)</a></div>`).join('')}
+<button id="attach">파일첨부</button>
 <script>
 document.querySelectorAll('.cb_item').forEach(function(a){a.onclick=function(){a.parentElement.querySelector('input').value=a.textContent}});
+document.getElementById('attach').onclick=function(){var f=document.createElement('iframe');f.src='/upload_inline.act';document.body.appendChild(f)};
 <\/script></body></html>`;
 const bzUpload = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
 <script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.close()}<\/script></body></html>`;
+const bzUploadInline = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
+<script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.frameElement.remove()}<\/script></body></html>`;
 const bzApprovalLine = `<!doctype html><html><body><select id="APPRLINE_NM"><option>선택</option><option value="corp">법인카드 지출결의서</option></select>
 <button id="ok">확인</button><script>document.getElementById('ok').onclick=async function(){await fetch('/__expense_submit',{method:'POST'});window.close()}<\/script></body></html>`;
 
@@ -243,6 +247,7 @@ const server = createServer(
       if (path === '/eapr_1001.act') return res.end(bzApprovalModal);
       if (path === '/purpose_form.act') return res.end(bzPurposeForm);
       if (path === '/upload.act') return res.end(bzUpload);
+      if (path === '/upload_inline.act') { inlineUploadLoads++; return res.end(bzUploadInline); }
       if (path === '/approval_line.act') return res.end(bzApprovalLine);
       if (path === '/__expense_upload') { expenseUploadRequests++; return res.end('ok'); }
       if (path === '/__expense_submit') { expenseSubmitRequests++; return res.end('ok'); }
@@ -586,7 +591,7 @@ await page.click('#expense-submit-open');
 const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
 await page.click('#expense-submit-go');
 await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || ''), { timeout: 90000 });
-const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1;
+const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1 && inlineUploadLoads === 1;
 // 실행 중 "무엇을 시도했는지"가 실시간으로 쌓였는지 — 오래 걸리는 단계에서 멈춘 건지
 // 도는 건지 사용자가 구분할 수 있어야 한다. (결과로 넘어가면 사라지므로 다시 한 번 관찰)
 await page.goto(`chrome-extension://${extId}/page/index.html`);
@@ -630,6 +635,7 @@ checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수�
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
+  ['결의서 하위 프레임의 인라인 첨부 화면 처리', inlineUploadLoads === 1],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],
   ['야근식비 결재 상신', mealSubmitOk]);

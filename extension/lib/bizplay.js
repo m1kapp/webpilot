@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05j';
+const BUILD = '2026-08-05k';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -500,6 +500,11 @@ async function waitTabClosed(tabId, tries = 22) {
 // 비즈플레이 팝업도 신뢰 사용자 제스처를 요구해 합성 click의 window.open이 차단된다.
 // MAIN world에서 URL을 가로챈 뒤 확장이 직접 탭을 열면 업로드·결재선 화면을 이어갈 수 있다.
 async function openCapturedPopup(tabId, frameId, buttonText) {
+  let resolveCreated;
+  const created = new Promise((resolve) => { resolveCreated = resolve; });
+  const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(tab.id); };
+  chrome.tabs.onCreated.addListener(onCreated);
+  const createdTimer = setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(null); }, 2600);
   const url = await evaluate(tabId, (label) => new Promise((resolve) => {
     const orig = window.open; let done = false;
     const finish = (u) => { if (done) return; done = true; window.open = orig; resolve(u || ''); };
@@ -512,7 +517,71 @@ async function openCapturedPopup(tabId, frameId, buttonText) {
     if (!el) return finish('');
     el.click(); setTimeout(() => finish(''), 1800);
   }), buttonText, { frameId, world: 'MAIN' }).catch(() => '');
-  return url ? openTab(url).catch(() => null) : null;
+  const createdId = await created;
+  clearTimeout(createdTimer);
+  if (url) return openTab(url).catch(() => null);
+  if (createdId != null) {
+    await chrome.tabs.update(createdId, { active: false }).catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      const tab = await chrome.tabs.get(createdId).catch(() => null);
+      if (!tab || tab.status === 'complete') break;
+      await sleep(250);
+    }
+    return createdId;
+  }
+  return null;
+}
+
+async function findActionFrames(tabId, label) {
+  return evaluateAllFrames(tabId, (want) => {
+    const norm = (v) => String(v || '').replace(/\s+/g, '');
+    const els = [...document.querySelectorAll('a,button,input[type=button],input[type=submit]')];
+    const found = els.filter((e) => norm(e.textContent || e.value).includes(norm(want)) && e.offsetParent !== null);
+    return { count: found.length, url: location.href,
+      examples: found.slice(0, 3).map((e) => `${e.tagName.toLowerCase()} ${(e.textContent || e.value || '').trim()}`) };
+  }, label).catch(() => []);
+}
+
+async function findFrameWithSelector(tabId, selector, tries = 10) {
+  for (let i = 0; i < tries; i++) {
+    const frames = await evaluateAllFrames(tabId, (sel) => ({ found: !!document.querySelector(sel), url: location.href }), selector).catch(() => []);
+    const hit = frames.find((x) => x.result?.found);
+    if (hit) return { frameId: hit.frameId, frames };
+    await sleep(350);
+  }
+  return { frameId: null, frames: [] };
+}
+
+// 버튼이 결의 모달의 어느 하위 프레임에 있든 찾아 클릭한다.
+// 파일첨부는 팝업뿐 아니라 같은 탭에 업로드 iframe을 만드는 변형도 지원한다.
+async function openUploadTarget(tabId, preferredFrame) {
+  const scanned = await findActionFrames(tabId, '파일첨부');
+  const frames = scanned.filter((x) => x.result?.count > 0).map((x) => x.frameId);
+  if (frames.includes(preferredFrame)) {
+    frames.splice(frames.indexOf(preferredFrame), 1);
+    frames.unshift(preferredFrame);
+  }
+  for (const frameId of frames) {
+    const popup = await openCapturedPopup(tabId, frameId, '파일첨부');
+    if (popup != null) return { tabId: popup, frameId: 0, popup: true, actionFrame: frameId, scanned };
+    const inline = await findFrameWithSelector(tabId, 'input[type=file]', 4);
+    if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, actionFrame: frameId, scanned };
+  }
+  return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned };
+}
+
+async function openPopupFromAnyFrame(tabId, preferredFrame, label) {
+  const scanned = await findActionFrames(tabId, label);
+  const frames = scanned.filter((x) => x.result?.count > 0).map((x) => x.frameId);
+  if (frames.includes(preferredFrame)) {
+    frames.splice(frames.indexOf(preferredFrame), 1);
+    frames.unshift(preferredFrame);
+  }
+  for (const frameId of frames) {
+    const popup = await openCapturedPopup(tabId, frameId, label);
+    if (popup != null) return { tabId: popup, actionFrame: frameId, scanned };
+  }
+  return { tabId: null, actionFrame: null, scanned };
 }
 
 async function installDialogCapture(tabId, frameId = 0) {
@@ -632,30 +701,50 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       onProgress('야근 증빙 첨부', { try: '타임인아웃 근태 증빙 PNG 생성' });
       const file = proofFile?.base64 && proofFile?.type === 'image/png'
         ? proofFile : await renderTaxiEvidenceFile(targets, month);
-      uploadTab = await openCapturedPopup(appTab, modalFrame, '파일첨부');
-      if (uploadTab == null) throw new Error('증빙 파일첨부 창이 열리지 않았어요');
-      const setFile = await evaluate(uploadTab, (f) => {
+      const upload = await openUploadTarget(appTab, modalFrame);
+      uploadTab = upload.popup ? upload.tabId : null;
+      if (upload.tabId == null) {
+        onProgress('야근 증빙 첨부', { try: '결의서 전체 프레임에서 파일첨부 버튼 검색', result: '첨부 화면 못 엶',
+          프레임: upload.scanned.map((x) => `${x.frameId} · ${x.result?.url || '?'} · 버튼 ${x.result?.count || 0}`) });
+        throw new Error('증빙 파일첨부 창이 열리지 않았어요');
+      }
+      onProgress('야근 증빙 첨부', { try: '파일첨부 버튼', result: upload.popup ? '팝업 열림' : '같은 탭의 첨부 프레임 열림',
+        위치: `프레임 ${upload.actionFrame}` });
+      const setFile = await evaluate(upload.tabId, (f) => {
         const input = document.querySelector('input[type=file]'); if (!input) return false;
         const bin = atob(f.base64), bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
         input.files = dt.files; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
         return input.files.length === 1;
-      }, file);
+      }, file, { frameId: upload.frameId });
       if (!setFile) throw new Error('증빙 파일 입력칸을 못 찾았어요');
-      await evaluate(uploadTab, () => {
+      await evaluate(upload.tabId, () => {
         const el = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
           .find((e) => /^업로드$/.test((e.textContent || e.value || '').trim()) && e.offsetParent !== null);
         el?.click();
-      }, undefined, { world: 'MAIN' });
-      if (!(await waitTabClosed(uploadTab))) throw new Error('증빙 업로드가 완료되지 않았어요');
+      }, undefined, { frameId: upload.frameId, world: 'MAIN' });
+      const uploaded = upload.popup ? await waitTabClosed(upload.tabId) : await (async () => {
+        for (let i = 0; i < 22; i++) {
+          const frames = await listFrames(appTab);
+          if (!frames.some((x) => x.frameId === upload.frameId)) return true;
+          await sleep(450);
+        }
+        return false;
+      })();
+      if (!uploaded) throw new Error('증빙 업로드가 완료되지 않았어요');
       uploadTab = null;
       onProgress('야근 증빙 첨부', { try: file.name, result: '첨부 완료' });
     }
 
     onProgress('결재선 선택', { try: '결재요청 → 법인카드 지출결의서' });
-    approvalTab = await openCapturedPopup(appTab, modalFrame, '결재요청');
-    if (approvalTab == null) throw new Error('결재선 선택 창이 열리지 않았어요');
+    const approval = await openPopupFromAnyFrame(appTab, modalFrame, '결재요청');
+    approvalTab = approval.tabId;
+    if (approvalTab == null) {
+      onProgress('결재선 선택', { try: '결의서 전체 프레임에서 결재요청 버튼 검색', result: '팝업 못 엶',
+        프레임: approval.scanned.map((x) => `${x.frameId} · ${x.result?.url || '?'} · 버튼 ${x.result?.count || 0}`) });
+      throw new Error('결재선 선택 창이 열리지 않았어요');
+    }
     const line = await evaluate(approvalTab, () => {
       const sel = document.querySelector('#APPRLINE_NM'); if (!sel) return false;
       const opt = [...sel.options].find((o) => /법인카드\s*지출결의서/.test(o.textContent || ''));
