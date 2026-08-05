@@ -165,6 +165,7 @@ async function execute(auto) {
       const e = new Error(res?.error || '가져오지 못했습니다');
       e.needsLogin = res?.needsLogin || null;
       e.needsFlowKey = res?.needsFlowKey || null;
+      e.needsAppUrl = res?.needsAppUrl || null;
       e.detail = res?.detail || '';
       throw e;
     }
@@ -175,7 +176,7 @@ async function execute(auto) {
     show('result');
   } catch (e) {
     if (e.needsFlowKey) return promptFlowKey();
-    failCurrentStep(e.message, e.needsLogin, e.detail);
+    failCurrentStep(e.message, e.needsLogin, e.detail, e.needsAppUrl);
   }
 }
 
@@ -208,6 +209,21 @@ async function saveFlowKey() {
 }
 
 // 로그인하기 → 로그인 페이지 열고 완료 대기 → 그 자동화 자동 재실행
+// 앱을 사람이 여는 동안 지켜보다가 주소를 잡으면 자동으로 이어서 실행한다.
+async function captureAppUrlThenRetry(needsAppUrl) {
+  $('run-actions').hidden = true;
+  $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink)">
+    <b>${esc(needsAppUrl.service)}</b> 창을 열었어요 · <b>${esc(needsAppUrl.app)}</b>을 눌러 열면 자동으로 이어서 실행합니다</div>`;
+  const res = await chrome.runtime.sendMessage({ type: 'capture-app-url' });
+  if (!res?.ok) {
+    $('run-actions').hidden = false;
+    $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink)">앱 주소를 잡지 못했어요. 다시 시도해주세요.</div>`;
+    return;
+  }
+  buildSteps(current);
+  await execute(current);
+}
+
 async function loginThenRetry(needsLogin) {
   $('run-err').innerHTML = `<div style="display:flex;align-items:center;gap:9px;color:#5a6172;font-size:13px">
     <span class="dot" style="width:16px;height:16px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite"></span>
@@ -247,7 +263,7 @@ function advanceTo(text) {
 function markAllDone() {
   stepEls.forEach((el) => { el.classList.remove('active', 'wait', 'err'); el.classList.add('done'); });
 }
-function failCurrentStep(message, needsLogin, detail) {
+function failCurrentStep(message, needsLogin, detail, needsAppUrl) {
   const active = stepEls.find((el) => el.classList.contains('active')) || stepEls[stepEls.length - 1];
   active?.classList.remove('active');
   active?.classList.add('err');
@@ -260,6 +276,18 @@ function failCurrentStep(message, needsLogin, detail) {
     $('run-actions').hidden = false;
     $('run-retry').textContent = `${needsLogin.service} 로그인하기`;
     $('run-retry').onclick = () => loginThenRetry(needsLogin);
+    return;
+  }
+
+  if (needsAppUrl) {
+    // 이 앱 타일은 확장이 눌러도 반응하지 않는다(브라우저가 만든 진짜 클릭만 받는다).
+    // 사람이 한 번만 직접 열면 주소를 기억해 다음부터는 바로 조회한다.
+    $('run-err').innerHTML = `<div style="color:var(--ink);font-weight:600;margin-bottom:3px">${esc(needsAppUrl.app)} 앱을 한 번만 직접 열어주세요</div>
+      <div style="font-size:12.5px;color:var(--muted)">이 앱 아이콘은 <b>사람이 누른 클릭만</b> 받아서 확장이 대신 못 눌러요.
+        한 번 열어 두면 주소를 기억해 <b>다음부터는 바로</b> 조회합니다.</div>`;
+    $('run-actions').hidden = false;
+    $('run-retry').textContent = `${esc(needsAppUrl.app)} 열기`;
+    $('run-retry').onclick = () => captureAppUrlThenRetry(needsAppUrl);
     return;
   }
 

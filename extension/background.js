@@ -3,7 +3,7 @@
 import { getLeaveStatus } from './lib/timeinout.js';
 import { getOvertime } from './lib/overtime.js';
 import { getCorrectionTargets } from './lib/correction.js';
-import { getYagunTaxi, getYasik } from './lib/bizplay.js';
+import { getYagunTaxi, getYasik, captureCardAppUrl } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
 import { openLoginAndWait } from './lib/tab.js';
 
@@ -30,6 +30,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return true;
   }
 
+  // 카드영수증 앱은 확장이 눌러도 안 열린다(진짜 클릭만 받는다).
+  // 사람이 한 번 직접 여는 동안 지켜보다가 주소를 붙잡아 저장한다 — 로그인 흐름과 같은 발상.
+  if (msg?.type === 'capture-app-url') {
+    captureCardAppUrl().then((url) => reply({ ok: !!url, url })).catch(() => reply({ ok: false }));
+    return true;
+  }
+
   // Flow API 키 — 설정 화면에서 읽기/저장/검증
   if (msg?.type === 'flow-key-get') { getFlowKey().then((key) => reply({ ok: true, hasKey: !!key })); return true; }
   if (msg?.type === 'flow-key-save') {
@@ -48,7 +55,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   run(msg, progress)
     .then((data) => reply({ ok: true, data }))
     .catch((e) => reply({ ok: false, error: e.message || String(e),
-      needsLogin: e.needsLogin || null, needsFlowKey: e.needsFlowKey || null,
+      needsLogin: e.needsLogin || null, needsFlowKey: e.needsFlowKey || null, needsAppUrl: e.needsAppUrl || null,
       detail: e.detail || (e.stack ? String(e.stack).split('\n').slice(0, 3).join('\n') : '') }));
   return true; // 비동기 응답
 });

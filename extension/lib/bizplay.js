@@ -9,7 +9,7 @@ import { yagunDateOf } from '../core/calendar.js';
 
 const HOST = 'https://www.bizplay.co.kr';
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-07-31e';
+const BUILD = '2026-07-31f';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -83,6 +83,45 @@ async function scrapeActUrls() {
     .slice(0, 12);
 }
 
+// 카드영수증 앱 주소 기억.
+// 이 타일은 확장이 절대 못 누른다 — 핸들러가 신뢰 제스처(isTrusted)를 요구하는데
+// 확장의 합성 이벤트로는 만들 수 없다(데스크톱판은 Playwright라 진짜 클릭이 나갔다).
+// 주소도 정적 스크립트에 없어서 긁어낼 수 없다. 그래서 로그인과 같은 방식으로 간다:
+// 사람이 한 번만 직접 열고, 그때 주소를 붙잡아 다음부터는 바로 연다.
+const APP_URL_KEY = 'bizplayCardAppUrl';
+export const getCardAppUrl = async () => (await chrome.storage.local.get(APP_URL_KEY))[APP_URL_KEY] || '';
+export const setCardAppUrl = (url) => chrome.storage.local.set({ [APP_URL_KEY]: url || '' });
+
+// 사람이 카드영수증 앱을 여는 동안 지켜보다가, 미결의 목록이 있는 탭이 뜨면 그 주소를 잡는다.
+export async function captureCardAppUrl({ timeoutMs = 180000, pollMs = 1500 } = {}) {
+  const launcher = await chrome.tabs.create({ url: `${HOST}/main_0003_01.act`, active: true });
+  const deadline = Date.now() + timeoutMs;
+  try {
+    await sleep(1500);
+    while (Date.now() < deadline) {
+      const live = await chrome.tabs.get(launcher.id).catch(() => null);
+      const tabs = await chrome.tabs.query({ url: `${HOST}/*` }).catch(() => []);
+      for (const t of tabs) {
+        // 프레임 어디든 미결의 목록이 보이면 그 탭의 주소가 앱 주소다.
+        const hits = await evaluateAllFrames(t.id, () => ({
+          url: location.href,
+          ok: !!document.querySelector('#tableList') || /대기\s*\(\d+\)/.test(document.body?.innerText || ''),
+        })).catch(() => []);
+        if (hits.some((h) => h.result?.ok)) {
+          const url = t.url || (hits.find((h) => h.result?.ok)?.result.url) || '';
+          if (url && !/main_0003|bizpr_main/.test(url)) {
+            await setCardAppUrl(url);
+            return url;
+          }
+        }
+      }
+      if (!live && !tabs.length) return '';   // 사용자가 다 닫았으면 포기
+      await sleep(pollMs);
+    }
+    return '';
+  } catch { return ''; }
+}
+
 // 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
 const hasPendingTable = (tabId, frameId) =>
   evaluate(tabId, () => !!document.querySelector('#tableList') || /대기\s*\(\d+\)/.test(document.body?.innerText || ''),
@@ -107,6 +146,20 @@ async function openCardApp(month, onProgress) {
   }
 
   onProgress('카드영수증 앱 여는 중');
+  // 0순위: 지난번에 사람이 열어 준 주소. 아직 유효하면 클릭을 아예 건너뛴다.
+  const saved = await getCardAppUrl();
+  if (saved) {
+    const t = await openTab(saved).catch(() => null);
+    if (t != null) {
+      const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
+      if (await hasPendingTable(t, fid ?? 0)) {
+        await closeTab(launcher);
+        onProgress('카드영수증 앱 여는 중', { '앱 주소': saved, '연 방법': '기억해 둔 주소' });
+        return finishCardApp(t, fid, month);
+      }
+      await closeTab(t);
+    }
+  }
   await sleep(1200);
   // 핵심: 앱은 window.open으로 새 창을 여는데, 확장의 자동 클릭은 신뢰 제스처가 아니라 팝업 차단됨.
   // → window.open을 가로채 URL만 뽑고, 그 URL을 확장이 직접 chrome.tabs.create로 연다(팝업 차단 없음).
@@ -253,7 +306,11 @@ async function openCardApp(month, onProgress) {
       if (r.html) lines.push('      타일 원문:', `        ${r.html}`);
       if (!r.count && r.sample?.length) lines.push(`      이 화면에 보이는 것: ${r.sample.join(' / ')}`);
     }
+    lines.push('',
+      '이 화면의 앱 타일은 확장이 눌러도 반응하지 않습니다(브라우저가 만든 진짜 클릭만 받습니다).',
+      '아래 버튼으로 한 번만 직접 열어 주시면 주소를 기억해 다음부터는 바로 조회합니다.');
     e.detail = lines.join('\n');
+    e.needsAppUrl = { service: '비즈플레이', app: '카드영수증' };
     throw e;
   }
   if (appTabId !== launcher) await closeTab(launcher); // 앱을 새 탭으로 열었으면 런처는 닫음
@@ -284,27 +341,31 @@ async function openCardApp(month, onProgress) {
       ...frames.map((f) => `  ${f.url.slice(0, 100)}`)].join('\n');
     throw e;
   }
-  const appTab = appTabId; // 이후 단계는 이 탭을 씀
-  const appUrl = await evaluate(appTab, () => location.href).catch(() => '');
+  const appUrl = await evaluate(appTabId, () => location.href).catch(() => '');
   onProgress('카드영수증 앱 여는 중', {
     런처: beforeUrl,
     '앱 주소': appUrl || '(못 읽음)',
-    '연 방법': openedUrl ? 'window.open 가로채기' : (appTabId === launcher ? '같은 탭 이동' : '새 탭'),
-    '데이터 프레임': 'eusr_9001 찾음',
+    '연 방법': openedUrl ? 'window.open 가로채기'
+      : inlineFrame ? '같은 페이지 iframe'
+      : appTabId === launcher ? '같은 탭 이동' : '새 탭',
   });
-  await sleep(1500);
+  // 다음부터는 클릭 없이 바로 열 수 있게 기억해 둔다.
+  if (appUrl && !/main_0003|bizpr_main/.test(appUrl)) await setCardAppUrl(appUrl);
+  return finishCardApp(appTabId, frameId, month);
+}
 
-  // 대상월 날짜 범위 세팅
+// 데이터 프레임에 대상월 날짜 범위를 넣고 참조를 돌려준다. 어느 경로로 열었든 여기로 모인다.
+async function finishCardApp(appTab, frameId, month) {
+  await sleep(1500);
   const [y, m] = month.split('-').map(Number);
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const p2 = (n) => String(n).padStart(2, '0');
-  await evaluateFrame(appTab, frameId, (r) => {
+  await evaluateFrame(appTab, frameId ?? 0, (r) => {
     const set = (id, v) => { const el = document.getElementById(id); if (el) { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); } };
     ['START_DT', 'SHOW_START_DT', 'BASE_START_DT'].forEach((id) => set(id, r.s));
     ['END_DT', 'SHOW_END_DT', 'BASE_END_DT'].forEach((id) => set(id, r.e));
-  }, { s: `${y}-${p2(m)}-01`, e: `${y}-${p2(m)}-${p2(last)}` });
-
-  return { appTab, frameId };
+  }, { s: `${y}-${p2(m)}-01`, e: `${y}-${p2(m)}-${p2(last)}` }).catch(() => {});
+  return { appTab, frameId: frameId ?? 0 };
 }
 
 // '대기(n)' 탭 클릭 + 페이지 크기 키우기 + 행 스크래핑

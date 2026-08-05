@@ -449,6 +449,27 @@ const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
 
 checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk]);
 
+// 앱 주소를 기억해 두는지 — 이 타일은 확장이 못 누르므로(진짜 클릭만 받음)
+// 한 번 연 주소를 저장해 다음부터 바로 여는 게 유일한 길이다.
+const savedAppUrl = await page.evaluate(() => new Promise((r) => {
+  chrome.storage.local.get('bizplayCardAppUrl', (v) => r(v.bizplayCardAppUrl || ''));
+}));
+console.log('\n── 기억한 카드영수증 앱 주소 ──');
+console.log('  ' + (savedAppUrl || '(없음)'));
+checks.push(['앱 주소 기억', /eusr_9001/.test(savedAppUrl)]);
+
+// 기억한 주소로 다시 돌리면 클릭 경로를 아예 건너뛰고 열려야 한다.
+const again = await runExpense('yagun');
+const reusedTrace = await page.evaluate(() => {
+  const d = document.querySelector('details.trace');
+  if (!d) return '';
+  d.open = true;
+  return d.innerText.replace(/\s+/g, ' ');
+});
+console.log('  재실행 결과:', again.kpis);
+checks.push(['기억한 주소로 재실행', again.rows.length === 3],
+  ['재실행이 기억해 둔 주소를 씀', /기억해 둔 주소/.test(reusedTrace)]);
+
 // 자동화 5개 전부 상단바 제목이 제 이름으로 바뀌는지.
 // 제목은 start()에서 실행 전에 세워지므로 수집이 성공할 필요가 없다 —
 // 비즈플레이를 안 띄운 채로도 야근택시·야근식비까지 확인할 수 있다.
