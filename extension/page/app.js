@@ -226,16 +226,29 @@ function isReceiptListPage() {
     tr.querySelectorAll('td').length >= 8 && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || ''));
 }
 
+// 무엇을 봤는지 함께 돌려준다. 실패 이유를 삼키면 "못 찾았다"만 남아 손을 못 댄다.
 async function findOpenAppUrl() {
-  const tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS }).catch(() => []);
+  const notes = [];
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS });
+  } catch (e) { return { url: '', notes: [`탭 목록을 못 읽음: ${e.message}`] }; }
+  if (!tabs.length) notes.push('비즈플레이·appplay 탭이 열려 있지 않아요');
   for (const t of tabs) {
-    if (!t.url || /main_0003|bizpr_main/.test(t.url)) continue;
-    const hits = await chrome.scripting.executeScript({
-      target: { tabId: t.id, allFrames: true }, func: isReceiptListPage,
-    }).catch(() => []);
-    if ((hits || []).some((h) => h.result)) return t.url;
+    if (!t.url) { notes.push('(주소를 읽을 수 없는 탭)'); continue; }
+    const short = t.url.replace(/^https?:\/\//, '').slice(0, 60);
+    if (/main_0003|bizpr_main/.test(t.url)) { notes.push(`${short} → 런처 화면(건너뜀)`); continue; }
+    try {
+      const hits = await chrome.scripting.executeScript({
+        target: { tabId: t.id, allFrames: true }, func: isReceiptListPage,
+      });
+      if ((hits || []).some((h) => h.result)) return { url: t.url, notes };
+      notes.push(`${short} → 미결의 목록이 아님`);
+    } catch (e) {
+      notes.push(`${short} → 읽지 못함: ${e.message}`);
+    }
   }
-  return '';
+  return { url: '', notes };
 }
 
 async function captureAppUrlThenRetry(needsAppUrl) {
@@ -243,7 +256,7 @@ async function captureAppUrlThenRetry(needsAppUrl) {
   const say = (msg) => { $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink);line-height:1.6">${msg}</div>`; };
 
   // 이미 열려 있으면 굳이 새로 열지 않는다(지금 화면에 띄워 둔 경우가 많다).
-  let url = await findOpenAppUrl();
+  let { url, notes } = await findOpenAppUrl();
   if (!url) {
     await chrome.tabs.create({ url: 'https://www.bizplay.co.kr/main_0003_01.act', active: true });
     say(`<b>${esc(needsAppUrl.service)}</b> 창을 열었어요 · <b>${esc(needsAppUrl.app)}</b>을 눌러 열면 자동으로 이어서 실행합니다`);
@@ -251,13 +264,27 @@ async function captureAppUrlThenRetry(needsAppUrl) {
   const deadline = Date.now() + CAPTURE_MS;
   while (!url && Date.now() < deadline) {
     await sleep(1200);
-    url = await findOpenAppUrl();
+    ({ url, notes } = await findOpenAppUrl());
     const left = Math.ceil((deadline - Date.now()) / 1000);
-    if (!url) say(`<b>${esc(needsAppUrl.app)}</b>을 여는 중인지 지켜보고 있어요 · ${left}초 남음`);
+    if (!url) say(`<b>${esc(needsAppUrl.app)}</b>을 여는 중인지 지켜보고 있어요 · ${left}초 남음`
+      + `<div class="cap-notes">${(notes || []).map((n) => esc(n)).join('<br>')}</div>`);
   }
   if (!url) {
+    // 자동으로 못 잡았으면 손으로 넣게 한다. 주소창을 복사해 붙이면 끝난다.
+    say(`<b>${esc(needsAppUrl.app)}</b> 주소를 자동으로 잡지 못했어요.`
+      + `<div class="cap-notes">${(notes || []).map((n) => esc(n)).join('<br>')}</div>`
+      + `<div style="margin-top:9px">카드영수증 화면의 <b>주소창을 복사해</b> 붙여넣어 주세요.</div>`
+      + `<input id="cap-url" placeholder="https://…/rcard_main.act" style="width:100%;margin-top:7px;padding:8px 10px;border:1px solid #d9dcec;border-radius:9px;font:inherit;font-size:12.5px">`);
     $('run-actions').hidden = false;
-    say('앱 주소를 잡지 못했어요. 카드영수증 목록이 보이는 상태에서 다시 눌러주세요.');
+    $('run-retry').textContent = '이 주소로 계속';
+    $('run-retry').onclick = async () => {
+      const v = ($('cap-url')?.value || '').trim();
+      if (!/^https?:\/\//.test(v)) { $('cap-url')?.focus(); return; }
+      await chrome.storage.local.set({ bizplayCardAppUrl: v });
+      $('run-actions').hidden = true;
+      buildSteps(current);
+      await execute(current);
+    };
     return;
   }
   await chrome.storage.local.set({ bizplayCardAppUrl: url });
