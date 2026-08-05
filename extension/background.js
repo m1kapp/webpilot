@@ -2,8 +2,8 @@
 // 서비스 워커는 놀면 종료되므로 전역 변수에 상태를 담지 않는다(필요하면 chrome.storage).
 import { getLeaveStatus } from './lib/timeinout.js';
 import { getOvertime } from './lib/overtime.js';
-import { getCorrectionTargets } from './lib/correction.js';
-import { getYagunTaxi, getYasik } from './lib/bizplay.js';
+import { getCorrectionTargets, submitCorrections } from './lib/correction.js';
+import { getYagunTaxi, getYasik, submitExpenseApproval } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
 import { openLoginAndWait } from './lib/tab.js';
 
@@ -12,8 +12,10 @@ const RUNNERS = {
   'leave-personal': (msg, progress) => getLeaveStatus(msg.year, progress),
   'overtime': (msg, progress) => getOvertime(msg.month, progress),
   'correction': (msg, progress) => getCorrectionTargets(msg.month, progress),
+  'correction-submit': (msg, progress) => submitCorrections(msg.rows, msg.memo, progress),
   'yagun': (msg, progress) => getYagunTaxi(msg.month, progress),
   'yasik': (msg, progress) => getYasik(msg.month, progress),
+  'expense-submit': (msg, progress) => submitExpenseApproval(msg.kind, msg.month, msg.items, progress),
 };
 
 // 툴바 아이콘 → 사이드 패널. 팝업과 달리 다른 곳을 클릭해도 닫히지 않아

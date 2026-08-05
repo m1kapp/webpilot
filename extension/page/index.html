@@ -108,6 +108,7 @@
   .run-actions { margin-top:auto; display:flex; gap:8px; padding-top:14px; }
   .btn { padding:9px 16px; border-radius:10px; font-size:13.5px; font-weight:600; }
   .btn-primary { background:var(--blue); color:#fff; }
+  .btn-danger { background:var(--red); color:#fff; }
   .btn-ghost { background:var(--soft); color:#5a6172; }
 
   /* ── 결과 ── */
@@ -124,6 +125,16 @@
   .kpi .v { font-size:23px; font-weight:800; letter-spacing:-.5px; margin-top:4px; }
   .kpi.wide { grid-column:1 / -1; }   /* 게이지가 들어가는 KPI는 한 줄 다 쓴다 */
   .foot { color:var(--muted); font-size:11.5px; margin:12px 0 0; }
+  /* 실제 쓰기 전 확인 상자 — 조회 결과와 제출은 반드시 별도 클릭 두 번으로 분리한다. */
+  .write-card { border-color:#f0d4c7; background:#fffdfb; }
+  .write-card .write-title { font-size:14px; font-weight:800; margin-bottom:5px; }
+  .write-card .write-desc { font-size:12px; color:var(--muted); line-height:1.65; margin-bottom:11px; }
+  .write-confirm { margin-top:10px; padding:12px; border:1px solid #f0c9c9; background:#fff7f7; border-radius:11px; }
+  .write-confirm b { display:block; color:var(--red); font-size:13px; margin-bottom:5px; }
+  .write-confirm p { margin:0 0 9px; font-size:12px; color:#626b7d; line-height:1.6; }
+  .write-confirm textarea { width:100%; min-height:58px; resize:vertical; padding:8px 10px; margin-bottom:9px;
+    border:1px solid #d9dcec; border-radius:9px; font:inherit; font-size:12px; color:var(--ink); }
+  .write-buttons { display:flex; flex-wrap:wrap; gap:8px; }
 
   /* 무엇이 어느 합계에서 빠졌는지 설명 */
   .ot-excl-note { font-size:11.5px; color:var(--muted); margin:6px 0 0; line-height:1.65; }

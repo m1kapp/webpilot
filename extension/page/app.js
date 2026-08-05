@@ -186,6 +186,39 @@ async function execute(auto) {
   }
 }
 
+// 실제 시스템 쓰기는 조회와 분리한다. 결과 화면의 버튼 → 경고 확인 버튼을 거친 뒤에만 이 함수가 호출된다.
+async function runWriteAction({ payload, steps, label, render }) {
+  const owner = current;
+  trace = [];
+  traceStart = Date.now();
+  buildSteps({ steps });
+  $('run-ic').innerHTML = autoIcon(owner || {});
+  $('run-lb').textContent = label;
+  $('run-sb').textContent = '실제 제출';
+  $('run-err').hidden = true;
+  $('run-actions').hidden = true;
+  $('run-live').hidden = true;
+  $('run-live').innerHTML = '';
+  show('run');
+  try {
+    const res = await chrome.runtime.sendMessage(payload);
+    if (!res?.ok) {
+      const e = new Error(res?.error || '제출하지 못했습니다');
+      e.needsLogin = res?.needsLogin || null; e.detail = res?.detail || '';
+      throw e;
+    }
+    if (current !== owner) return;
+    markAllDone();
+    await sleep(250);
+    render(res.data);
+    appendTrace();
+    show('result');
+  } catch (e) {
+    if (current !== owner) return;
+    failCurrentStep(e.message, e.needsLogin, e.detail, null);
+  }
+}
+
 // Flow API 키 입력 → 검증·저장 → 자동 재실행
 function promptFlowKey() {
   const active = stepEls.find((el) => el.classList.contains('active')) || stepEls[stepEls.length - 1];
@@ -598,7 +631,7 @@ function appendTrace() {
 const fmtMin = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
 const fmtMinShort = (m) => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return h ? `${h}:${String(mm).padStart(2, '0')}` : `${mm}분`; };
 
-// 야근택시·야근식비(조회) 공용 — 미결의 후보 + 근태 증빙 판정. 상신은 아직 수동.
+// 야근택시·야근식비 공용 — 후보 판정 뒤 인정 건을 결재 1건으로 묶어 실제 상신할 수 있다.
 function renderExpense(d, kind) {
   const s = d.summary || {};
   const isTaxi = kind === 'yagun';
@@ -613,12 +646,23 @@ function renderExpense(d, kind) {
           <div class="l">${esc(s.amountText || '0원')}</div></div>
         <div class="kpi"><div class="l">제외</div><div class="v" style="font-size:19px">${noCount ?? 0}건</div></div>
       </div>
-      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 근태로 ${isTaxi ? '심야택시=그날 야근 여부' : '저녁=야근 / 조식=이른출근'}를 판정. 상신은 준비 중.</p>
+      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">타임인아웃 근태로 ${isTaxi ? '심야택시=그날 야근 여부' : '저녁=야근 / 조식=이른출근'}를 판정합니다. 인정 건만 아래에서 결재로 올릴 수 있어요.</p>
     </div>
     <div class="card">
       <h2>후보 목록 <span class="side">전체 ${s.count ?? 0}건</span></h2>
       <div class="cr-list" id="ex-rows"></div>
       <p class="foot">미결의(대기)에서 ${isTaxi ? '심야택시(23~03시)' : '1인 식대(13,000 이내·저녁/조식)'}만.</p>
+    </div>
+    <div class="card write-card" id="expense-write">
+      <div class="write-title">${isTaxi ? '야근교통비' : '야근식비'} 결재 올리기</div>
+      <div class="write-desc">인정 건을 모두 선택해 <b>결재 1건</b>으로 묶습니다.${isTaxi ? ' 타임인아웃 근태 증빙 PNG도 자동 첨부합니다.' : ''}</div>
+      <button class="btn btn-primary" id="expense-submit-open">상신 대상 확인</button>
+      <div class="write-confirm" id="expense-submit-confirm" hidden>
+        <b id="expense-submit-warning"></b>
+        <p>이 작업은 비즈플레이에서 결의서를 만들고 결재선 ‘법인카드 지출결의서’로 실제 상신합니다.</p>
+        <div class="write-buttons"><button class="btn btn-danger" id="expense-submit-go">확인하고 실제 상신</button>
+          <button class="btn btn-ghost" id="expense-submit-cancel">취소</button></div>
+      </div>
     </div>`;
 
   const rows = d.items || [];
@@ -637,9 +681,43 @@ function renderExpense(d, kind) {
       <div class="cr-badge ${ok ? 'ok' : ''}" style="${ok ? '' : 'color:#c1c8d6'}">${ok ? '✓' : '–'}</div>
     </div>`;
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">후보가 없어요 🎉</div>`;
+
+  const targets = rows.filter((x) => isTaxi ? x.hasProof : x.eligible);
+  const amount = targets.reduce((sum, x) => sum + Number(x.amount || 0), 0);
+  const open = $('expense-submit-open');
+  if (!targets.length) {
+    open.disabled = true; open.textContent = '상신할 인정 건 없음'; open.style.opacity = '.55';
+  } else {
+    open.textContent = `${targets.length}건 · ${amount.toLocaleString('en-US')}원 대상 확인`;
+    open.onclick = () => {
+      $('expense-submit-warning').textContent = `${targets.length}건 · ${amount.toLocaleString('en-US')}원을 결재 1건으로 실제 상신합니다`;
+      $('expense-submit-confirm').hidden = false; open.hidden = true;
+    };
+    $('expense-submit-cancel').onclick = () => { $('expense-submit-confirm').hidden = true; open.hidden = false; };
+    $('expense-submit-go').onclick = () => runWriteAction({
+      payload: { type: 'expense-submit', kind, month: d.month, items: targets },
+      label: `${isTaxi ? '야근교통비' : '야근식비'} 상신`,
+      steps: ['상신 대상 다시 확인', '결의서 작성', '용도 입력', ...(isTaxi ? ['야근 증빙 첨부'] : []), '결재선 선택', '상신 완료 확인'],
+      render: renderExpenseSubmit,
+    });
+  }
 }
 
-// 출퇴근 정정(조회) 결과 — 누락일별 현재기록·Flow활동·제안 출퇴근. 신청은 아직 수동.
+function renderExpenseSubmit(d) {
+  const s = d.summary || {}, isTaxi = d.kind === 'yagun';
+  $('view-result').innerHTML = `<div class="card">
+    <h2>${isTaxi ? '야근교통비' : '야근식비'} 상신 완료<span class="side">${esc(d.month || '')}</span></h2>
+    <div class="kpis"><div class="kpi"><div class="l">상신한 영수증</div><div class="v" style="color:var(--ok)">${s.submitted ?? 0}건</div>
+      <div class="l">${Number(s.amount || 0).toLocaleString('en-US')}원</div></div>
+      <div class="kpi"><div class="l">생성된 결재</div><div class="v">${s.approvals ?? 0}건</div></div></div>
+    <p style="color:var(--muted);font-size:12px;margin:12px 0 0">${isTaxi ? '타임인아웃 근태 증빙을 첨부해 ' : ''}결재선 ‘법인카드 지출결의서’로 요청했습니다.</p>
+  </div><div class="card"><h2>상신 항목</h2><div class="cr-list">${(d.submitted || []).map((x) => `
+    <div class="cr-row done"><div class="cr-day" style="width:52px;font-size:11px">${esc((x.date || '').slice(5, 10))}</div>
+      <div class="cr-mid"><div class="cr-case">${esc(x.merchant || '')}</div><div class="cr-detail">${Number(x.amount || 0).toLocaleString('en-US')}원</div></div>
+      <div class="cr-badge ok">✓</div></div>`).join('')}</div></div>`;
+}
+
+// 출퇴근 정정 결과 — 누락일별 제안을 확인한 뒤 실제 수정 요청까지 이어진다.
 function renderCorrection(d) {
   const s = d.summary || {};
   $('view-result').innerHTML = `
@@ -649,12 +727,24 @@ function renderCorrection(d) {
         <div class="kpi"><div class="l">신청 필요</div><div class="v" style="color:${s.need ? 'var(--blue)' : 'var(--ok)'}">${s.need ?? 0}<span style="font-size:14px;color:var(--muted);font-weight:600">건</span></div></div>
         <div class="kpi"><div class="l">이미 신청됨</div><div class="v" style="font-size:19px">${s.submitted ?? 0}건</div></div>
       </div>
-      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">Flow 캘린더 활동으로 실제 근무시간대를 추정해 <b>제안</b>합니다. 신청은 타임인아웃에서 직접(자동 신청은 준비 중).</p>
+      <p style="color:var(--muted);font-size:12px;margin:12px 0 0">Flow 캘린더 활동으로 실제 근무시간대를 추정합니다. 아래 제안을 확인한 뒤 타임인아웃 수정 요청으로 제출할 수 있어요.</p>
     </div>
     <div class="card">
       <h2>누락일별 제안</h2>
       <div class="cr-list" id="cr-rows"></div>
       <p class="foot">제안 = Flow 첫·마지막 활동 기준(출근 최대 10:30 · 퇴근 최소 18:00 · 9시간 보장).</p>
+    </div>
+    <div class="card write-card" id="correction-write">
+      <div class="write-title">타임인아웃에 정정 신청</div>
+      <div class="write-desc">제안 시각이 있는 미신청 건만 날짜별로 <b>수정 요청</b>합니다. 이미 신청된 날짜는 건드리지 않아요.</div>
+      <button class="btn btn-primary" id="correction-submit-open">신청 대상 확인</button>
+      <div class="write-confirm" id="correction-submit-confirm" hidden>
+        <b id="correction-submit-warning"></b>
+        <p>이 작업은 실제 인사 시스템에 정정 요청을 제출합니다. 날짜와 시각을 다시 확인해주세요.</p>
+        <textarea id="correction-submit-memo">실제 근무시간으로 정정 요청 (Webwing)</textarea>
+        <div class="write-buttons"><button class="btn btn-danger" id="correction-submit-go">확인하고 실제 신청</button>
+          <button class="btn btn-ghost" id="correction-submit-cancel">취소</button></div>
+      </div>
     </div>`;
 
   const rows = d.items || [];
@@ -677,6 +767,39 @@ function renderCorrection(d) {
       <div class="cr-sug">${esc(x.suggestIn || '')}<span class="ar">→</span>${esc(x.suggestOut || '')}</div>
     </div>`;
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">정정할 누락일이 없어요 🎉</div>`;
+
+  const targets = rows.filter((x) => !x.submitted && x.suggestIn && x.suggestOut)
+    .map((x) => ({ date: x.date, in: x.suggestIn, out: x.suggestOut }));
+  const open = $('correction-submit-open');
+  if (!targets.length) {
+    open.disabled = true; open.textContent = '신청할 제안 없음'; open.style.opacity = '.55';
+  } else {
+    open.textContent = `${targets.length}건 신청 대상 확인`;
+    open.onclick = () => {
+      $('correction-submit-warning').textContent = `${targets.length}건을 실제 정정 신청합니다`;
+      $('correction-submit-confirm').hidden = false;
+      open.hidden = true;
+    };
+    $('correction-submit-cancel').onclick = () => { $('correction-submit-confirm').hidden = true; open.hidden = false; };
+    $('correction-submit-go').onclick = () => runWriteAction({
+      payload: { type: 'correction-submit', rows: targets, memo: $('correction-submit-memo').value.trim() },
+      label: '출퇴근 정정 신청',
+      steps: ['정정 신청 입력 중', '정정 신청 제출 중', '신청 결과 확인'],
+      render: renderCorrectionSubmit,
+    });
+  }
+}
+
+function renderCorrectionSubmit(d) {
+  const s = d.summary || {};
+  $('view-result').innerHTML = `<div class="card">
+    <h2>정정 신청 결과<span class="side">총 ${s.total ?? 0}건</span></h2>
+    <div class="kpis"><div class="kpi"><div class="l">제출 완료</div><div class="v" style="color:var(--ok)">${s.ok ?? 0}건</div></div>
+      <div class="kpi"><div class="l">실패</div><div class="v" style="color:${s.failed ? 'var(--red)' : 'var(--muted)'}">${s.failed ?? 0}건</div></div></div>
+  </div><div class="card"><h2>날짜별 결과</h2><div class="cr-list">${(d.results || []).map((r) => `
+    <div class="cr-row ${r.ok ? 'done' : 'miss'}"><div class="cr-day">${esc((r.date || '').slice(8))}</div>
+      <div class="cr-mid"><div class="cr-case">${r.ok ? '신청 완료' : '실패'}</div><div class="cr-detail">${esc(r.in || '')}~${esc(r.out || '')} · ${esc(r.message || '')}</div></div>
+      <div class="cr-badge ${r.ok ? 'ok' : ''}">${r.ok ? '✓' : '!'}</div></div>`).join('')}</div></div>`;
 }
 
 function monthsUntil(expireDate) {

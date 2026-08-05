@@ -4,12 +4,20 @@
 
 function waitComplete(tabId) {
   return new Promise((resolve) => {
+    let timer;
     const onUpdated = (id, info) => {
       if (id !== tabId || info.status !== 'complete') return;
       chrome.tabs.onUpdated.removeListener(onUpdated);
+      clearTimeout(timer);
       resolve();
     };
     chrome.tabs.onUpdated.addListener(onUpdated);
+    // 이미 complete가 된 뒤 리스너를 붙인 팝업도 놓치지 않는다.
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status !== 'complete') return;
+      chrome.tabs.onUpdated.removeListener(onUpdated); clearTimeout(timer); resolve();
+    }).catch(() => { chrome.tabs.onUpdated.removeListener(onUpdated); clearTimeout(timer); resolve(); });
+    timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve(); }, 25000);
   });
 }
 

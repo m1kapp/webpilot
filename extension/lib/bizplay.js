@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05d';
+const BUILD = '2026-08-05e';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -165,7 +165,7 @@ async function findOpenReceiptTab(excludeTabId) {
 
 // 런처 → 카드영수증 앱(새 탭 또는 같은 페이지 iframe) → 데이터 프레임.
 // 대상월로 날짜범위까지 세팅한 frame 참조 반환.
-async function openCardApp(month, onProgress) {
+export async function openCardApp(month, onProgress) {
   onProgress('비즈플레이 여는 중');
   const launcher = await openTab(`${HOST}/main_0003_01.act`);
   await sleep(1000);
@@ -450,6 +450,191 @@ async function loadPendingRows(appTab, frameId) {
     [...document.querySelectorAll('tr')]
       .map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.trim().replace(/\s+/g, ' ')))
       .filter((td) => td.length >= 8 && /\d{4}-\d{2}-\d{2}/.test(td.join(' '))));
+}
+
+// 서비스 워커의 OffscreenCanvas로 야근택시 증빙 PNG를 만든다.
+// 파일 경로를 가질 수 없는 확장 환경이므로 base64 File로 업로드 팝업에 주입한다.
+async function renderTaxiEvidenceFile(items, month) {
+  if (typeof OffscreenCanvas === 'undefined') throw new Error('이 브라우저에서 증빙 이미지 생성을 지원하지 않아요');
+  const rows = [...items].sort((a, b) => String(a.yagunDate).localeCompare(String(b.yagunDate)));
+  const w = 1080, rowH = 46, h = 150 + Math.max(1, rows.length) * rowH + 60;
+  const canvas = new OffscreenCanvas(w, h), c = canvas.getContext('2d');
+  c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#1f2a44'; c.font = '700 28px sans-serif'; c.fillText('야근·휴일근무 택시비 증빙', 36, 48);
+  c.fillStyle = '#6b7488'; c.font = '16px sans-serif'; c.fillText(`${month} · 타임인아웃 실제 출퇴근 기록 기준`, 36, 79);
+  const cols = [36, 190, 330, 470, 650, 850];
+  const heads = ['야근일', '출근', '퇴근', '초과근무', '택시사용', '금액'];
+  c.fillStyle = '#eef2fb'; c.fillRect(28, 96, w - 56, 40);
+  c.fillStyle = '#42506b'; c.font = '700 16px sans-serif'; heads.forEach((x, i) => c.fillText(x, cols[i], 122));
+  c.font = '16px sans-serif';
+  rows.forEach((r, i) => {
+    const y = 136 + i * rowH;
+    c.fillStyle = i % 2 ? '#f8faff' : '#fff'; c.fillRect(28, y, w - 56, rowH);
+    c.fillStyle = '#2b3448';
+    const vals = [r.yagunDate || '', r.yagunIn || '-', r.yagunOut || '-', r.otText || '-',
+      String(r.date || '').replace(/^\d{4}-/, ''), `${Number(r.amount || 0).toLocaleString('en-US')}원`];
+    vals.forEach((x, j) => c.fillText(String(x), cols[j], y + 29));
+    c.strokeStyle = '#dce2ef'; c.beginPath(); c.moveTo(28, y + rowH); c.lineTo(w - 28, y + rowH); c.stroke();
+  });
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  c.fillStyle = '#1f2a44'; c.font = '700 17px sans-serif';
+  c.fillText(`합계 ${rows.length}건 · ${total.toLocaleString('en-US')}원`, 36, h - 30);
+  c.fillStyle = '#8f98a8'; c.font = '13px sans-serif'; c.fillText('출처: 타임인아웃 근태 기록 · Webwing 자동 생성', 650, h - 30);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { name: `webwing-yagun-${month}.png`, type: 'image/png', base64: btoa(binary) };
+}
+
+const tabAlive = (tabId) => chrome.tabs.get(tabId).then(() => true).catch(() => false);
+async function waitTabClosed(tabId, tries = 22) {
+  for (let i = 0; i < tries; i++) { if (!(await tabAlive(tabId))) return true; await sleep(700); }
+  return false;
+}
+
+// 비즈플레이 팝업도 신뢰 사용자 제스처를 요구해 합성 click의 window.open이 차단된다.
+// MAIN world에서 URL을 가로챈 뒤 확장이 직접 탭을 열면 업로드·결재선 화면을 이어갈 수 있다.
+async function openCapturedPopup(tabId, frameId, buttonText) {
+  const url = await evaluate(tabId, (label) => new Promise((resolve) => {
+    const orig = window.open; let done = false;
+    const finish = (u) => { if (done) return; done = true; window.open = orig; resolve(u || ''); };
+    window.open = function (u) {
+      let href = ''; try { href = u ? new URL(u, location.href).href : ''; } catch {}
+      finish(href); return { closed: false, focus() {}, close() {} };
+    };
+    const el = [...document.querySelectorAll('a,button,input[type=button],input[type=submit]')]
+      .find((e) => (e.textContent || e.value || '').replace(/\s+/g, '').includes(label.replace(/\s+/g, '')) && e.offsetParent !== null);
+    if (!el) return finish('');
+    el.click(); setTimeout(() => finish(''), 1800);
+  }), buttonText, { frameId, world: 'MAIN' }).catch(() => '');
+  return url ? openTab(url).catch(() => null) : null;
+}
+
+async function installDialogCapture(tabId, frameId = 0) {
+  await evaluate(tabId, () => {
+    if (window.__webwingDialogRestore) return;
+    const alert = window.alert, confirm = window.confirm;
+    window.__webwingDialogs = [];
+    window.alert = (m) => { window.__webwingDialogs.push(String(m || '')); };
+    window.confirm = (m) => { window.__webwingDialogs.push(String(m || '')); return true; };
+    window.__webwingDialogRestore = () => { window.alert = alert; window.confirm = confirm; delete window.__webwingDialogRestore; };
+  }, undefined, { frameId, world: 'MAIN' }).catch(() => {});
+}
+
+// 조회 결과에서 사용자가 두 번 확인한 뒤 호출되는 실제 결의 상신.
+// kind=yagun은 증빙 PNG 필수, yasik은 인정 건만 용도 바인딩 후 한 결재로 묶는다.
+export async function submitExpenseApproval(kind, month, items = [], onProgress = () => {}) {
+  if (!['yagun', 'yasik'].includes(kind)) throw new Error('알 수 없는 경비 종류예요');
+  const useName = kind === 'yagun' ? '야근교통비' : '야근식비';
+  const targets = items.filter((x) => x?.key && x.amount > 0);
+  if (!targets.length) throw new Error('결재 올릴 인정 건이 없어요');
+  onProgress('상신 대상 다시 확인', { try: `${useName} ${targets.length}건` });
+  const { appTab, frameId, shouldClose } = await openCardApp(month, onProgress);
+  let modalFrame = null, uploadTab = null, approvalTab = null;
+  try {
+    await loadPendingRows(appTab, frameId);
+    await installDialogCapture(appTab, frameId);
+    const keys = targets.map((x) => x.key);
+    const hit = await evaluateFrame(appTab, frameId, (wanted) => {
+      const set = new Set(wanted); let n = 0;
+      for (const tr of document.querySelectorAll('tr')) {
+        const tds = [...tr.querySelectorAll('td')];
+        const cb = tr.querySelector('input[type=checkbox]'); if (!cb || tds.length < 8) continue;
+        const key = `${tds[3].innerText.trim()}|${tds[4].innerText.trim()}|${tds[7].innerText.trim()}`;
+        const yes = set.has(key); if (cb.checked !== yes) cb.click(); if (yes) n++;
+      }
+      return n;
+    }, keys);
+    onProgress('상신 대상 다시 확인', { try: '미결의 행 체크', result: `${hit}/${targets.length}건` });
+    if (hit !== targets.length) throw new Error(`미결의 행이 바뀌었어요 (${hit}/${targets.length}건만 찾음). 다시 조회해주세요.`);
+
+    onProgress('결의서 작성', { try: `${hit}건을 결재 1건으로 묶기` });
+    const clicked = await evaluate(appTab, () => {
+      const el = [...document.querySelectorAll('a,button')].find((e) => /결의서\s*작성/.test((e.textContent || '').trim()) && e.offsetParent !== null);
+      if (!el) return false; el.click(); return true;
+    }, undefined, { frameId, world: 'MAIN' });
+    if (!clicked) throw new Error('결의서 작성 버튼을 못 찾았어요');
+    modalFrame = await findFrame(appTab, 'eapr_1001', { tries: 18, gap: 500 });
+    if (modalFrame == null) throw new Error('결의서 작성 화면이 열리지 않았어요');
+    await installDialogCapture(appTab, modalFrame);
+
+    onProgress('용도 입력', { try: `모든 항목에 '${useName}' 선택` });
+    const comboCount = await evaluateFrame(appTab, modalFrame, () => document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]').length);
+    if (!comboCount) throw new Error('결의서의 용도 입력칸을 못 찾았어요');
+    for (let i = 0; i < comboCount; i++) {
+      await evaluateFrame(appTab, modalFrame, (idx) => document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]')[idx]
+        ?.querySelector('a.bt_purpose_cbList')?.click(), i);
+      await sleep(450);
+      const bound = await evaluateFrame(appTab, modalFrame, ({ idx, use }) => {
+        const combo = document.querySelectorAll('div.purpose_combo[id^="TRAN_KIND_CD"]')[idx];
+        const opts = [...(combo?.querySelectorAll('a.cb_item') || [])];
+        const opt = opts.find((e) => (e.textContent || '').includes(use) && e.offsetParent !== null)
+          || opts.find((e) => (e.textContent || '').includes(use));
+        if (!opt) return false; opt.click();
+        const inp = combo.querySelector('input[placeholder*="선택"]');
+        return !!inp || true;
+      }, { idx: i, use: useName });
+      if (!bound) throw new Error(`용도 '${useName}' 옵션을 못 찾았어요 (항목 ${i + 1})`);
+    }
+    onProgress('용도 입력', { try: useName, result: `${comboCount}개 항목 선택 완료` });
+
+    if (kind === 'yagun') {
+      onProgress('야근 증빙 첨부', { try: '타임인아웃 근태 증빙 PNG 생성' });
+      const file = await renderTaxiEvidenceFile(targets, month);
+      uploadTab = await openCapturedPopup(appTab, modalFrame, '파일첨부');
+      if (uploadTab == null) throw new Error('증빙 파일첨부 창이 열리지 않았어요');
+      const setFile = await evaluate(uploadTab, (f) => {
+        const input = document.querySelector('input[type=file]'); if (!input) return false;
+        const bin = atob(f.base64), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
+        input.files = dt.files; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
+        return input.files.length === 1;
+      }, file);
+      if (!setFile) throw new Error('증빙 파일 입력칸을 못 찾았어요');
+      await evaluate(uploadTab, () => {
+        const el = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
+          .find((e) => /^업로드$/.test((e.textContent || e.value || '').trim()) && e.offsetParent !== null);
+        el?.click();
+      }, undefined, { world: 'MAIN' });
+      if (!(await waitTabClosed(uploadTab))) throw new Error('증빙 업로드가 완료되지 않았어요');
+      uploadTab = null;
+      onProgress('야근 증빙 첨부', { try: file.name, result: '첨부 완료' });
+    }
+
+    onProgress('결재선 선택', { try: '결재요청 → 법인카드 지출결의서' });
+    approvalTab = await openCapturedPopup(appTab, modalFrame, '결재요청');
+    if (approvalTab == null) throw new Error('결재선 선택 창이 열리지 않았어요');
+    const line = await evaluate(approvalTab, () => {
+      const sel = document.querySelector('#APPRLINE_NM'); if (!sel) return false;
+      const opt = [...sel.options].find((o) => /법인카드\s*지출결의서/.test(o.textContent || ''));
+      if (!opt) return false; sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); return true;
+    }, undefined, { world: 'MAIN' });
+    if (!line) throw new Error("결재선 '법인카드 지출결의서'를 못 찾았어요");
+    await sleep(500);
+    await evaluate(approvalTab, () => {
+      const el = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
+        .find((e) => /^확인$/.test((e.textContent || e.value || '').trim()) && e.offsetParent !== null);
+      el?.click();
+    }, undefined, { world: 'MAIN' });
+    if (!(await waitTabClosed(approvalTab))) throw new Error('결재선 확인이 완료되지 않았어요');
+    approvalTab = null;
+    await sleep(900);
+    const dialogs = await evaluate(appTab, () => {
+      const d = window.__webwingDialogs || []; window.__webwingDialogRestore?.(); return d;
+    }, undefined, { frameId, world: 'MAIN' }).catch(() => []);
+    const failed = /오류|실패|필수|선택해/.test(dialogs.join(' '));
+    if (failed) throw new Error(dialogs.join(' · '));
+    onProgress('상신 완료 확인', { try: `${targets.length}건 · 결재 1건`, result: '상신 완료', 안내: dialogs.join(' · ') || undefined });
+    return { recipe: 'expense-submit', kind, month, submitted: targets,
+      summary: { submitted: targets.length, approvals: 1, failed: 0,
+        amount: targets.reduce((s, x) => s + Number(x.amount || 0), 0) } };
+  } finally {
+    if (uploadTab != null && await tabAlive(uploadTab)) await closeTab(uploadTab);
+    if (approvalTab != null && await tabAlive(approvalTab)) await closeTab(approvalTab);
+    if (shouldClose) await closeTab(appTab);
+  }
 }
 
 // 여러 달의 타임인아웃 근태를 모아 date→day 레코드 map

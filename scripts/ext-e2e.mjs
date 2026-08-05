@@ -58,6 +58,16 @@ const loginLanding = `<!doctype html><html lang="ko"><body><h1>로그인</h1>
 <script>setTimeout(function(){ location.href='/__done'; }, 700)</script></body></html>`;
 let loggedIn = false; // 시작은 로그아웃 — 로그인 흐름을 검증한 뒤 목록/상세를 준다
 let rcardMainRequests = 0; // 열린 앱 탭 재사용 시 새 rcard_main GET이 나가면 안 된다
+let correctionSubmitRequests = 0;
+let expenseSubmitRequests = 0;
+let expenseUploadRequests = 0;
+
+const correctionModifyPage = `<!doctype html><html lang="ko"><body>
+<input name="InOutData[0].inTimeApproval"><input name="InOutData[0].OutTimeApproval">
+<textarea name="RequestInOutMemo"></textarea><button id="submit">수정 요청</button>
+<script>document.getElementById('submit').onclick = async function () {
+  await fetch('/__correction_submit', { method:'POST' }); alert('등록되었습니다.');
+};<\/script></body></html>`;
 
 // ── 초과근무용 가짜 페이지 ── (대상월 2026-06 가정)
 // 근태 카드: "MM.DD (요일) ... IN hh:mm OUT hh:mm ... 인정시간 …" 형태를 흉내
@@ -163,6 +173,7 @@ const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-se
 <div>조회기간 2026-06-01 ~ 2026-07-31</div>
 <div>결의상태 전체(${BZ_ROWS.length + BZ_FILLER.length + 2}) | <span id="tab-wait" style="cursor:pointer">대기(${BZ_ROWS.length + BZ_FILLER.length})</span> | 진행(2) | 완료(0)</div>
 <div id="paging_size"><span class="btn_combo_down">▾</span><ul><li><a href="#">100</a></li><li><a href="#">200</a></li></ul></div>
+<button id="make-approval">결의서 작성</button>
 <table><tbody id="rows"></tbody></table>
 <script>
   var ROWS = ${JSON.stringify([...BZ_ROWS, ...BZ_OTHER_MONTH, ...BZ_FILLER])};
@@ -174,7 +185,25 @@ const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-se
              '</td><td>' + r[2] + '</td><td>승인</td><td>-</td><td>' + amt + '</td></tr>';
     }).join('');
   });
+  document.getElementById('make-approval').addEventListener('click', function () {
+    var f = document.createElement('iframe'); f.src = '/eapr_1001.act'; f.style='width:100%;height:500px'; document.body.appendChild(f);
+  });
 <\/script></body></html>`;
+
+const bzApprovalModal = `<!doctype html><html lang="ko"><body>
+${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
+  <input placeholder="선택"><a class="bt_purpose_cbList">목록보기</a>
+  <a class="cb_item">야근교통비 (81200)</a><a class="cb_item">야근식비 (81300)</a></div>`).join('')}
+<button id="attach">파일첨부</button><button id="request">결재요청</button>
+<script>
+document.getElementById('attach').onclick=function(){window.open('/upload.act')};
+document.getElementById('request').onclick=function(){window.open('/approval_line.act')};
+document.querySelectorAll('.cb_item').forEach(function(a){a.onclick=function(){a.parentElement.querySelector('input').value=a.textContent}});
+<\/script></body></html>`;
+const bzUpload = `<!doctype html><html><body><input type="file"><button id="upload">업로드</button>
+<script>document.getElementById('upload').onclick=async function(){await fetch('/__expense_upload',{method:'POST'});window.close()}<\/script></body></html>`;
+const bzApprovalLine = `<!doctype html><html><body><select id="APPRLINE_NM"><option>선택</option><option value="corp">법인카드 지출결의서</option></select>
+<button id="ok">확인</button><script>document.getElementById('ok').onclick=async function(){await fetch('/__expense_submit',{method:'POST'});window.close()}<\/script></body></html>`;
 
 // 자체서명 인증서 (--ignore-certificate-errors와 함께 씀)
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -204,6 +233,11 @@ const server = createServer(
     if ((req.headers.host || '').includes('appplay')) {
       if (path === '/rcard_main.act') { rcardMainRequests++; return res.end(bzDelayedApp); }
       if (path === '/receipt_shell.act') return res.end(bzFrame);
+      if (path === '/eapr_1001.act') return res.end(bzApprovalModal);
+      if (path === '/upload.act') return res.end(bzUpload);
+      if (path === '/approval_line.act') return res.end(bzApprovalLine);
+      if (path === '/__expense_upload') { expenseUploadRequests++; return res.end('ok'); }
+      if (path === '/__expense_submit') { expenseSubmitRequests++; return res.end('ok'); }
       return res.end('<!doctype html><body>appplay</body>');
     }
 
@@ -220,6 +254,8 @@ const server = createServer(
     if (path === '/') return res.end(loginLanding);          // openLoginAndWait가 연 로그인 창
     if (path === '/__done') { loggedIn = true; return res.end('<!doctype html><body>로그인 완료</body>'); } // 성공 → 비밀번호칸 없음
     if (!loggedIn) return res.end(loginPage);                 // 로그아웃 상태에서 데이터 요청 → 로그인 폼
+    if (path === '/__correction_submit') { correctionSubmitRequests++; return res.end('ok'); }
+    if (path === '/InOutMng/InOutModify') return res.end(correctionModifyPage);
     if (path === '/InOutMng/InOutHistory') return res.end(historyPage);
     if (path.startsWith('/InOutMng/InOutDetail')) return res.end('<!doctype html><body></body>'); // 스필오버 상세(없음)
     if (path === '/InOutMng/List') return res.end(tripListPage);
@@ -377,6 +413,17 @@ console.log('  요약:', crSummary);
 console.log('  대상:', crRows.length, '건');
 for (const r of crRows.slice(0, 4)) console.log('    ', r);
 const crHasSuggestion = crRows.some((r) => /→|~/.test(r)) && /신청 필요/.test(crSummary);
+// 결과를 보는 것만으로는 쓰지 않고, 확인 버튼 두 번 뒤에만 실제 수정 요청이 나가야 한다.
+await page.click('#correction-submit-open');
+const correctionConfirmVisible = await page.$eval('#correction-submit-confirm', (e) => !e.hidden);
+const noCorrectionBeforeConfirm = correctionSubmitRequests === 0;
+await page.click('#correction-submit-go');
+await page.waitForSelector('#view-result:not([hidden])', { timeout: 60000 });
+const correctionSubmitText = await page.$eval('#view-result', (e) => e.innerText.replace(/\s+/g, ' '));
+const correctionSubmitOk = /정정 신청 결과/.test(correctionSubmitText)
+  && correctionSubmitRequests === crRows.length && /실패 0건/.test(correctionSubmitText);
+console.log('  확인 전 쓰기 없음:', noCorrectionBeforeConfirm ? '✓' : '✗', '· 확인 UI:', correctionConfirmVisible ? '✓' : '✗',
+  '· 실제 신청:', correctionSubmitRequests, '건');
 await page.screenshot({ path: '/tmp/ext-correction.png', fullPage: true });
 await page.click('#back');
 await page.waitForSelector('#view-home:not([hidden])');
@@ -418,6 +465,8 @@ checks.push(['패널에서 1열', panel.columns === 1],
   ['초과근무 표에 초과일 집계', otCatchesOvertime],
   ['정정 Flow 키 프롬프트', flowPrompt],
   ['정정 결과·제안값', crHasSuggestion],
+  ['정정 확인 전 쓰기 없음', noCorrectionBeforeConfirm && correctionConfirmVisible],
+  ['정정 확인 후 실제 신청', correctionSubmitOk],
   ['실행 단계 표시', stepLabels.length >= 3],
   ['로그인 필요 감지·버튼', loginPrompt],
   ['로그인 후 자동 재실행', true], // 위 waitForSelector가 통과했으면 도달한 것
@@ -459,6 +508,12 @@ async function runExpense(id, month = '2026-06') {
 
 console.log('\n── 야근택시 조회 ──');
 const yagun = await runExpense('yagun');
+const noExpenseBeforeTaxiConfirm = expenseSubmitRequests === 0;
+await page.click('#expense-submit-open');
+const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
+await page.click('#expense-submit-go');
+await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || ''), { timeout: 90000 });
+const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1;
 // 실행 중 "무엇을 시도했는지"가 실시간으로 쌓였는지 — 오래 걸리는 단계에서 멈춘 건지
 // 도는 건지 사용자가 구분할 수 있어야 한다. (결과로 넘어가면 사라지므로 다시 한 번 관찰)
 await page.goto(`chrome-extension://${extId}/page/index.html`);
@@ -485,6 +540,12 @@ console.log('\n── 야근식비 조회 ──');
 const yasik = await runExpense('yasik');
 console.log('요약:', yasik.kpis);
 for (const r of yasik.rows) console.log('  ', r);
+const beforeMealSubmit = expenseSubmitRequests;
+await page.click('#expense-submit-open');
+const mealConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
+await page.click('#expense-submit-go');
+await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || ''), { timeout: 90000 });
+const mealSubmitOk = expenseSubmitRequests === beforeMealSubmit + 1 && expenseUploadRequests === 1;
 // 5건 후보(점심·고액 제외). 저녁+야근 1건, 조식+이른출근 1건 = 인정 2건.
 const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
   && yasik.rows.filter((r) => r.endsWith('✓')).length === 2
@@ -492,7 +553,11 @@ const yasikOk = /인정/.test(yasik.kpis) && yasik.rows.length === 5
   && /파리바게뜨/.test(yasik.rows.join(' '))            // 조식 인정 분기가 실제로 돈다
   && /김밥천국/.test(yasik.rows.join(' '));             // 저녁 인정 분기가 실제로 돈다
 
-checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk]);
+checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수집·인정 판정', yasikOk],
+  ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
+  ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
+  ['야근식비 상신 확인 UI', mealConfirmVisible],
+  ['야근식비 결재 상신', mealSubmitOk]);
 
 // 앱 주소를 기억해 두는지 — 이 타일은 확장이 못 누르므로(진짜 클릭만 받음)
 // 한 번 연 주소를 저장해 다음부터 바로 여는 게 유일한 길이다.
