@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05o';
+const BUILD = '2026-08-05p';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -531,19 +531,15 @@ async function openCapturedFormTab(form) {
   return tabId;
 }
 
-// 비즈플레이 팝업도 신뢰 사용자 제스처를 요구해 합성 click의 window.open이 차단된다.
-// MAIN world에서 URL을 가로챈 뒤 확장이 직접 탭을 열면 업로드·결재선 화면을 이어갈 수 있다.
-async function openCapturedPopup(tabId, frameId, buttonText) {
-  let resolveCreated;
-  const created = new Promise((resolve) => { resolveCreated = resolve; });
-  const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(tab.id); };
-  chrome.tabs.onCreated.addListener(onCreated);
-  const createdTimer = setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(null); }, 2600);
-  const captured = await evaluate(tabId, (label) => new Promise((resolve) => {
+// 팝업 호출은 클릭한 하위 프레임이 아니라 parent/top의 유틸 함수에서 실행되기도 한다.
+// 탭의 MAIN world 전체 프레임에 짧게 훅을 걸어 window.open과 form POST를 모두 포착한다.
+async function installPopupCapture(tabId) {
+  return chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN', func: () => {
+    window.__webwingPopupCapture?.restore?.();
+    const state = { urls: [], forms: [], blanks: 0, frameUrl: location.href };
     const origOpen = window.open;
     const origSubmit = HTMLFormElement.prototype.submit;
     const origRequestSubmit = HTMLFormElement.prototype.requestSubmit;
-    let done = false, pendingUrl = '';
     const snapshotForm = (form, submitter) => {
       const data = new FormData(form);
       if (submitter?.name) data.append(submitter.name, submitter.value || '');
@@ -551,54 +547,80 @@ async function openCapturedPopup(tabId, frameId, buttonText) {
         method: (form.method || 'POST').toUpperCase(), enctype: form.enctype || '', baseUrl: location.href,
         fields: [...data.entries()].filter(([, v]) => typeof v === 'string') };
     };
-    const restore = () => {
-      window.open = origOpen;
-      HTMLFormElement.prototype.submit = origSubmit;
+    const captureForm = (form, submitter) => { try { state.forms.push(snapshotForm(form, submitter)); } catch {} };
+    const onSubmit = (event) => { event.preventDefault(); captureForm(event.target, event.submitter); };
+    window.open = function (u) {
+      let href = ''; try { href = u ? new URL(u, location.href).href : ''; } catch {}
+      if (href) state.urls.push(href); else state.blanks++;
+      const remember = (v) => { try { state.urls.push(new URL(v, location.href).href); } catch {} };
+      const locationStub = {};
+      Object.defineProperty(locationStub, 'href', { set: remember, get() { return state.urls.at(-1) || ''; } });
+      const popup = { closed: false, focus() {}, close() {}, document: { open() {}, write() {}, close() {} } };
+      Object.defineProperty(popup, 'location', { set: remember, get() { return locationStub; } });
+      return popup;
+    };
+    HTMLFormElement.prototype.submit = function () { captureForm(this); };
+    if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = function (submitter) { captureForm(this, submitter); };
+    document.addEventListener('submit', onSubmit, true);
+    state.restore = () => {
+      window.open = origOpen; HTMLFormElement.prototype.submit = origSubmit;
       if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = origRequestSubmit;
       document.removeEventListener('submit', onSubmit, true);
     };
-    const finish = (value) => { if (done) return; done = true; restore(); resolve(value || {}); };
-    const onSubmit = (event) => {
-      event.preventDefault();
-      finish({ form: snapshotForm(event.target, event.submitter) });
-    };
-    document.addEventListener('submit', onSubmit, true);
-    window.open = function (u) {
-      let href = ''; try { href = u ? new URL(u, location.href).href : ''; } catch {}
-      if (href) pendingUrl = href;
-      const locationStub = {};
-      Object.defineProperty(locationStub, 'href', { set(v) {
-        try { pendingUrl = new URL(v, location.href).href; } catch {}
-      }, get() { return pendingUrl; } });
-      const popup = { closed: false, focus() {}, close() {} };
-      Object.defineProperty(popup, 'location', { set(v) {
-        try { pendingUrl = new URL(v, location.href).href; } catch {}
-      }, get() { return locationStub; } });
-      return popup;
-    };
-    HTMLFormElement.prototype.submit = function () { finish({ form: snapshotForm(this) }); };
-    if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = function (submitter) {
-      finish({ form: snapshotForm(this, submitter) });
-    };
-    const el = [...document.querySelectorAll('a,button,input[type=button],input[type=submit]')]
-      .find((e) => (e.textContent || e.value || '').replace(/\s+/g, '').includes(label.replace(/\s+/g, '')) && e.offsetParent !== null);
-    if (!el) return finish({});
-    el.click(); setTimeout(() => finish(pendingUrl ? { url: pendingUrl } : {}), 1800);
-  }), buttonText, { frameId, world: 'MAIN' }).catch(() => ({}));
+    window.__webwingPopupCapture = state;
+    return { url: location.href };
+  } }).catch(() => []);
+}
+
+async function readAndRestorePopupCapture(tabId) {
+  const rows = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN', func: () => {
+    const state = window.__webwingPopupCapture;
+    if (!state) return null;
+    const out = { frameUrl: state.frameUrl, urls: [...state.urls], forms: [...state.forms], blanks: state.blanks };
+    state.restore?.(); delete window.__webwingPopupCapture; return out;
+  } }).catch(() => []);
+  return (rows || []).map((x) => ({ frameId: x.frameId, result: x.result })).filter((x) => x.result);
+}
+
+async function openCapturedPopup(tabId, frameId, buttonText) {
+  const beforeFrames = await listFrames(tabId);
+  await installPopupCapture(tabId);
+  let resolveCreated;
+  const created = new Promise((resolve) => { resolveCreated = resolve; });
+  const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(tab.id); };
+  chrome.tabs.onCreated.addListener(onCreated);
+  const createdTimer = setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(null); }, 2300);
+  const clicked = await evaluate(tabId, (label) => {
+    const norm = (v) => String(v || '').replace(/\s+/g, '');
+    const el = [...document.querySelectorAll('a,button,input[type=button],input[type=submit],[role=button],[onclick]')]
+      .find((e) => norm(e.textContent || e.value).includes(norm(label)) && e.offsetParent !== null);
+    if (!el) return { ok: false };
+    const info = { ok: true, html: el.outerHTML.replace(/\s+/g, ' ').slice(0, 900),
+      onclick: el.getAttribute('onclick') || '', href: el.getAttribute('href') || '', url: location.href };
+    el.click(); return info;
+  }, buttonText, { frameId, world: 'MAIN' }).catch((e) => ({ ok: false, error: e.message }));
+  await sleep(1900);
+  const captures = await readAndRestorePopupCapture(tabId);
   const createdId = await created;
   clearTimeout(createdTimer);
-  if (captured?.form) return openCapturedFormTab(captured.form);
-  if (captured?.url) return openTab(captured.url).catch(() => null);
-  if (createdId != null) {
-    await chrome.tabs.update(createdId, { active: false }).catch(() => {});
+  const forms = captures.flatMap((x) => x.result.forms || []);
+  const urls = captures.flatMap((x) => x.result.urls || []);
+  let opened = null, source = '없음';
+  if (forms.length) { opened = await openCapturedFormTab(forms.at(-1)); source = 'POST 폼'; }
+  if (opened == null && urls.length) { opened = await openTab(urls.at(-1)).catch(() => null); source = '팝업 URL'; }
+  if (opened == null && createdId != null) { opened = createdId; source = '실제 생성 탭'; }
+  if (opened != null) {
+    await chrome.tabs.update(opened, { active: false }).catch(() => {});
     for (let i = 0; i < 20; i++) {
-      const tab = await chrome.tabs.get(createdId).catch(() => null);
+      const tab = await chrome.tabs.get(opened).catch(() => null);
       if (!tab || tab.status === 'complete') break;
       await sleep(250);
     }
-    return createdId;
   }
-  return null;
+  const afterFrames = await listFrames(tabId);
+  return { tabId: opened, debug: { clicked, source,
+    capture: captures.map((x) => `${x.frameId} · ${x.result.frameUrl} · 빈창 ${x.result.blanks} · URL ${x.result.urls.length} · 폼 ${x.result.forms.length}`),
+    newFrames: afterFrames.filter((x) => !beforeFrames.some((b) => b.frameId === x.frameId)).map((x) => `${x.frameId} · ${x.url}`) } };
 }
 
 async function findActionFrames(tabId, label) {
@@ -607,7 +629,7 @@ async function findActionFrames(tabId, label) {
     const els = [...document.querySelectorAll('a,button,input[type=button],input[type=submit]')];
     const found = els.filter((e) => norm(e.textContent || e.value).includes(norm(want)) && e.offsetParent !== null);
     return { count: found.length, url: location.href,
-      examples: found.slice(0, 3).map((e) => `${e.tagName.toLowerCase()} ${(e.textContent || e.value || '').trim()}`) };
+      examples: found.slice(0, 3).map((e) => e.outerHTML.replace(/\s+/g, ' ').slice(0, 500)) };
   }, label).catch(() => []);
 }
 
@@ -629,22 +651,24 @@ const UPLOAD_FILE_SELECTOR = 'input[type=file]:not(#BBFileElement):not([onchange
 // 파일첨부는 팝업뿐 아니라 같은 탭에 업로드 iframe을 만드는 변형도 지원한다.
 async function openUploadTarget(tabId, preferredFrame) {
   const scanned = await findActionFrames(tabId, '파일첨부');
+  const attempts = [];
   const frames = scanned.filter((x) => x.result?.count > 0).map((x) => x.frameId);
   if (frames.includes(preferredFrame)) {
     frames.splice(frames.indexOf(preferredFrame), 1);
     frames.unshift(preferredFrame);
   }
   for (const frameId of frames) {
-    const popup = await openCapturedPopup(tabId, frameId, '파일첨부');
-    if (popup != null) {
-      const popupInput = await findFrameWithSelector(popup, UPLOAD_FILE_SELECTOR, 14);
-      if (popupInput.frameId != null) return { tabId: popup, frameId: popupInput.frameId, popup: true, actionFrame: frameId, scanned };
-      await closeTab(popup);
+    const opened = await openCapturedPopup(tabId, frameId, '파일첨부');
+    attempts.push(opened.debug);
+    if (opened.tabId != null) {
+      const popupInput = await findFrameWithSelector(opened.tabId, UPLOAD_FILE_SELECTOR, 14);
+      if (popupInput.frameId != null) return { tabId: opened.tabId, frameId: popupInput.frameId, popup: true, actionFrame: frameId, scanned, attempts };
+      await closeTab(opened.tabId);
     }
     const inline = await findFrameWithSelector(tabId, UPLOAD_FILE_SELECTOR, 4);
-    if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, actionFrame: frameId, scanned };
+    if (inline.frameId != null) return { tabId, frameId: inline.frameId, popup: false, actionFrame: frameId, scanned, attempts };
   }
-  return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned };
+  return { tabId: null, frameId: null, popup: false, actionFrame: null, scanned, attempts };
 }
 
 // 실화면의 첨부 UI는 세 종류다: 성공 후 닫히는 팝업, 사라지는 iframe,
@@ -729,16 +753,18 @@ async function findAttachedFile(tabId, fileName, uploadFrame) {
 
 async function openPopupFromAnyFrame(tabId, preferredFrame, label) {
   const scanned = await findActionFrames(tabId, label);
+  const attempts = [];
   const frames = scanned.filter((x) => x.result?.count > 0).map((x) => x.frameId);
   if (frames.includes(preferredFrame)) {
     frames.splice(frames.indexOf(preferredFrame), 1);
     frames.unshift(preferredFrame);
   }
   for (const frameId of frames) {
-    const popup = await openCapturedPopup(tabId, frameId, label);
-    if (popup != null) return { tabId: popup, actionFrame: frameId, scanned };
+    const opened = await openCapturedPopup(tabId, frameId, label);
+    attempts.push(opened.debug);
+    if (opened.tabId != null) return { tabId: opened.tabId, actionFrame: frameId, scanned, attempts };
   }
-  return { tabId: null, actionFrame: null, scanned };
+  return { tabId: null, actionFrame: null, scanned, attempts };
 }
 
 async function installDialogCapture(tabId, frameId = 0) {
@@ -863,6 +889,11 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       if (upload.tabId == null) {
         onProgress('야근 증빙 첨부', { try: '결의서 전체 프레임에서 파일첨부 버튼 검색', result: '첨부 화면 못 엶',
           프레임: upload.scanned.map((x) => `${x.frameId} · ${x.result?.url || '?'} · 버튼 ${x.result?.count || 0}`) });
+        for (const attempt of upload.attempts || []) {
+          onProgress('야근 증빙 첨부', { try: '파일첨부 요소', result: attempt.clicked?.html || attempt.clicked?.error || '클릭 요소 없음' });
+          onProgress('야근 증빙 첨부', { try: '전체 프레임 팝업 감시', result:
+            `${attempt.source} · ${(attempt.capture || []).join(' / ') || '캡처 없음'} · 새 프레임 ${(attempt.newFrames || []).join(' / ') || '없음'}` });
+        }
         throw new Error('증빙 파일첨부 창이 열리지 않았어요');
       }
       onProgress('야근 증빙 첨부', { try: '파일첨부 버튼', result: upload.popup ? '팝업 열림' : '같은 탭의 첨부 프레임 열림',
@@ -963,6 +994,8 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
     if (approvalTab == null) {
       onProgress('결재선 선택', { try: '결의서 전체 프레임에서 결재요청 버튼 검색', result: '팝업 못 엶',
         프레임: approval.scanned.map((x) => `${x.frameId} · ${x.result?.url || '?'} · 버튼 ${x.result?.count || 0}`) });
+      for (const attempt of approval.attempts || []) onProgress('결재선 선택', { try: '전체 프레임 팝업 감시', result:
+        `${attempt.source} · ${(attempt.capture || []).join(' / ') || '캡처 없음'}` });
       throw new Error('결재선 선택 창이 열리지 않았어요');
     }
     const line = await evaluate(approvalTab, () => {
