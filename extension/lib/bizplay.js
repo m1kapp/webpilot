@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05l';
+const BUILD = '2026-08-05m';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -786,6 +786,9 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       }
       onProgress('야근 증빙 첨부', { try: '파일첨부 버튼', result: upload.popup ? '팝업 열림' : '같은 탭의 첨부 프레임 열림',
         위치: `프레임 ${upload.actionFrame}` });
+      // 실제 Bizplay 첨부 화면은 별도 실행 버튼 없이 file input의 change에서 곧바로
+      // 업로드한다. change 이벤트보다 먼저 감시를 켜야 그 요청의 성공을 놓치지 않는다.
+      await installUploadProbe(upload.tabId, upload.frameId);
       const setFile = await evaluate(upload.tabId, (f) => {
         const input = document.querySelector('input[type=file]'); if (!input) return false;
         const bin = atob(f.base64), bytes = new Uint8Array(bin.length);
@@ -794,8 +797,10 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
         input.files = dt.files; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
         return input.files.length === 1;
       }, file, { frameId: upload.frameId });
-      if (!setFile) throw new Error('증빙 파일 입력칸을 못 찾았어요');
-      await installUploadProbe(upload.tabId, upload.frameId);
+      if (!setFile) {
+        await restoreUploadProbe(upload.tabId, upload.frameId);
+        throw new Error('증빙 파일 입력칸을 못 찾았어요');
+      }
       const uploadClick = await evaluate(upload.tabId, () => {
         const visible = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
           .filter((e) => e.offsetParent !== null);
@@ -805,13 +810,12 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
         if (!action) return { clicked: false, actions: visible.map(label).filter(Boolean).slice(0, 12) };
         const picked = label(action); action.click();
         return { clicked: true, label: picked, actions: visible.map(label).filter(Boolean).slice(0, 12) };
-      }, undefined, { frameId: upload.frameId, world: 'MAIN' });
+      }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
       if (!uploadClick?.clicked) {
-        await restoreUploadProbe(upload.tabId, upload.frameId);
-        onProgress('야근 증빙 첨부', { try: '첨부 화면의 실행 버튼 검색', result: '버튼 못 찾음',
-          버튼: uploadClick?.actions || [] });
-        throw new Error('증빙 업로드 버튼을 못 찾았어요');
+        onProgress('야근 증빙 첨부', { try: '첨부 화면의 실행 버튼 검색',
+          result: '버튼 없음 → 파일 선택 자동 업로드 기다림' });
       }
+      const uploadMode = uploadClick?.clicked ? `${uploadClick.label} 버튼 클릭` : '파일 선택 자동 업로드';
       let uploadDoneBy = '', lastUploadState = null;
       for (let i = 0; i < 34; i++) {
         if (upload.popup && !(await tabAlive(upload.tabId))) { uploadDoneBy = '첨부창 닫힘'; break; }
@@ -830,7 +834,7 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       }
       if (await tabAlive(upload.tabId)) await restoreUploadProbe(upload.tabId, upload.frameId);
       if (!uploadDoneBy) {
-        onProgress('야근 증빙 첨부', { try: `${uploadClick.label} 버튼 클릭 후 완료 신호 확인`, result: '완료 신호 없음',
+        onProgress('야근 증빙 첨부', { try: `${uploadMode} 후 완료 신호 확인`, result: '완료 신호 없음',
           화면: lastUploadState?.text || '(읽지 못함)', 버튼: lastUploadState?.actions || uploadClick.actions,
           통신: lastUploadState ? `요청 ${lastUploadState.requests} · 성공 ${lastUploadState.successes} · 실패 ${lastUploadState.failures}` : '읽지 못함' });
         throw new Error('증빙 업로드가 완료되지 않았어요');
