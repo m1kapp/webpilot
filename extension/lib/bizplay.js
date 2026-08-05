@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05m';
+const BUILD = '2026-08-05n';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -619,12 +619,15 @@ async function readUploadProbe(tabId, frameId) {
   return evaluate(tabId, () => {
     const p = window.__webwingUploadProbe || {};
     const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
-    const actions = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
+    const actions = [...document.querySelectorAll('button,a,input[type=button],input[type=submit],input[type=image],[role=button],[onclick]')]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => (e.textContent || e.value || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12);
+      .map((e) => (e.textContent || e.value || e.getAttribute('alt') || e.getAttribute('title') || '')
+        .replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12);
+    const input = document.querySelector('input[type=file]');
     return { requests: p.requests || 0, successes: p.successes || 0, failures: p.failures || 0,
       submitted: p.submitted || 0, text: text.slice(0, 220), actions, url: location.href,
-      hasFile: !!document.querySelector('input[type=file]') };
+      hasFile: !!input, fileCount: input?.files?.length || 0,
+      fileInput: input?.outerHTML?.replace(/\s+/g, ' ').slice(0, 260) || '' };
   }, undefined, { frameId, world: 'MAIN' }).catch(() => null);
 }
 
@@ -796,21 +799,44 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
         const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
         input.files = dt.files; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
         return input.files.length === 1;
-      }, file, { frameId: upload.frameId });
+      }, file, { frameId: upload.frameId, world: 'MAIN' });
       if (!setFile) {
         await restoreUploadProbe(upload.tabId, upload.frameId);
         throw new Error('증빙 파일 입력칸을 못 찾았어요');
       }
-      const uploadClick = await evaluate(upload.tabId, () => {
-        const visible = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')]
-          .filter((e) => e.offsetParent !== null);
-        const label = (e) => (e.textContent || e.value || '').replace(/\s+/g, ' ').trim();
-        const exact = visible.find((e) => /^업로드$/.test(label(e)));
-        const action = exact || visible.find((e) => /업로드|파일\s*첨부|첨부하기|등록|저장|확인/.test(label(e)));
-        if (!action) return { clicked: false, actions: visible.map(label).filter(Boolean).slice(0, 12) };
-        const picked = label(action); action.click();
-        return { clicked: true, label: picked, actions: visible.map(label).filter(Boolean).slice(0, 12) };
-      }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
+      let uploadClick = { clicked: false, actions: [] };
+      // 파일 선택 뒤에 버튼을 늦게 그리는 업로더도 있다. button/a만 보지 않고
+      // div·span·이미지형 컨트롤까지 텍스트로 찾아 실제 클릭 가능한 조상을 누른다.
+      for (let i = 0; i < 9 && !uploadClick.clicked; i++) {
+        uploadClick = await evaluate(upload.tabId, () => {
+          const label = (e) => (e.textContent || e.value || e.getAttribute?.('alt') || e.getAttribute?.('title') || '')
+            .replace(/\s+/g, ' ').trim();
+          const actionable = 'button,a,input[type=button],input[type=submit],input[type=image],[role=button],[onclick]';
+          const visible = [...document.querySelectorAll(actionable)].filter((e) => e.offsetParent !== null && !e.disabled);
+          const all = [...document.querySelectorAll('body *')]
+            .filter((e) => e.offsetParent !== null && /업로드|파일\s*첨부|첨부하기|파일\s*추가|전송|등록|저장|확인/.test(label(e)))
+            .sort((a, b) => label(a).length - label(b).length);
+          const exact = visible.find((e) => /^업로드$/.test(label(e)));
+          const textHit = all.find((e) => /^(업로드|파일\s*첨부|첨부하기|파일\s*추가|전송|등록|저장|확인)$/.test(label(e))) || all[0];
+          const action = exact || textHit?.closest(actionable) || textHit
+            || visible.find((e) => /업로드|첨부|추가|전송|등록|저장|확인/.test(label(e)));
+          const actions = visible.map(label).filter(Boolean).slice(0, 16);
+          if (!action || action.matches('input[type=file]')) {
+            return { clicked: false, actions, hasForm: !!document.querySelector('input[type=file]')?.form };
+          }
+          const picked = label(action) || action.tagName.toLowerCase(); action.click();
+          return { clicked: true, label: picked, actions, hasForm: !!document.querySelector('input[type=file]')?.form };
+        }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
+        if (!uploadClick.clicked) await sleep(350);
+      }
+      // 텍스트 컨트롤도 없지만 file input이 form 안에 있으면 브라우저의 정식 submit 경로를 쓴다.
+      if (!uploadClick.clicked && uploadClick.hasForm) {
+        uploadClick = await evaluate(upload.tabId, () => {
+          const form = document.querySelector('input[type=file]')?.form;
+          if (!form) return { clicked: false, actions: [] };
+          form.requestSubmit(); return { clicked: true, label: '첨부 폼 제출', actions: [] };
+        }, undefined, { frameId: upload.frameId, world: 'MAIN' }).catch(() => ({ clicked: false, actions: [], frameGone: true }));
+      }
       if (!uploadClick?.clicked) {
         onProgress('야근 증빙 첨부', { try: '첨부 화면의 실행 버튼 검색',
           result: '버튼 없음 → 파일 선택 자동 업로드 기다림' });
@@ -834,9 +860,13 @@ export async function submitExpenseApproval(kind, month, items = [], proofFile =
       }
       if (await tabAlive(upload.tabId)) await restoreUploadProbe(upload.tabId, upload.frameId);
       if (!uploadDoneBy) {
-        onProgress('야근 증빙 첨부', { try: `${uploadMode} 후 완료 신호 확인`, result: '완료 신호 없음',
-          화면: lastUploadState?.text || '(읽지 못함)', 버튼: lastUploadState?.actions || uploadClick.actions,
-          통신: lastUploadState ? `요청 ${lastUploadState.requests} · 성공 ${lastUploadState.successes} · 실패 ${lastUploadState.failures}` : '읽지 못함' });
+        onProgress('야근 증빙 첨부', { try: `${uploadMode} 후 완료 신호 확인`, result: '완료 신호 없음' });
+        onProgress('야근 증빙 첨부', { try: '첨부 화면 통신', result: lastUploadState
+          ? `요청 ${lastUploadState.requests} · 성공 ${lastUploadState.successes} · 실패 ${lastUploadState.failures} · 폼제출 ${lastUploadState.submitted}` : '읽지 못함' });
+        onProgress('야근 증빙 첨부', { try: '파일 입력 상태', result: lastUploadState
+          ? `파일 ${lastUploadState.fileCount}개 · ${lastUploadState.fileInput || 'input 정보 없음'}` : '읽지 못함' });
+        onProgress('야근 증빙 첨부', { try: '첨부 화면 문구·컨트롤', result:
+          `${lastUploadState?.text || '(문구 없음)'} · ${(lastUploadState?.actions || uploadClick.actions || []).join(' / ') || '(컨트롤 없음)'}` });
         throw new Error('증빙 업로드가 완료되지 않았어요');
       }
       uploadTab = null;
