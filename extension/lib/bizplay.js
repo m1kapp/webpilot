@@ -95,37 +95,9 @@ const APP_URL_KEY = 'bizplayCardAppUrl';
 export const getCardAppUrl = async () => (await chrome.storage.local.get(APP_URL_KEY))[APP_URL_KEY] || '';
 export const setCardAppUrl = (url) => chrome.storage.local.set({ [APP_URL_KEY]: url || '' });
 
-// 사람이 카드영수증 앱을 여는 동안 지켜보다가, 미결의 목록이 있는 탭이 뜨면 그 주소를 잡는다.
-export async function captureCardAppUrl({ timeoutMs = 180000, pollMs = 1500 } = {}) {
-  const launcher = await chrome.tabs.create({ url: `${HOST}/main_0003_01.act`, active: true });
-  const deadline = Date.now() + timeoutMs;
-  try {
-    await sleep(1500);
-    while (Date.now() < deadline) {
-      const live = await chrome.tabs.get(launcher.id).catch(() => null);
-      const tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS }).catch(() => []);
-      for (const t of tabs) {
-        // 프레임 어디든 미결의 목록이 보이면 그 탭의 주소가 앱 주소다.
-        const hits = await evaluateAllFrames(t.id, () => ({
-          url: location.href,
-          ok: !!document.querySelector('#tableList') || /대기\s*\(\d+\)/.test(document.body?.innerText || ''),
-        })).catch(() => []);
-        if (hits.some((h) => h.result?.ok)) {
-          const url = t.url || (hits.find((h) => h.result?.ok)?.result.url) || '';
-          if (url && !/main_0003|bizpr_main/.test(url)) {
-            await setCardAppUrl(url);
-            return url;
-          }
-        }
-      }
-      if (!live && !tabs.length) return '';   // 사용자가 다 닫았으면 포기
-      await sleep(pollMs);
-    }
-    return '';
-  } catch { return ''; }
-}
+// 주소를 붙잡는 감시는 패널(page/app.js)에서 돈다 — 서비스 워커는 몇 분짜리 폴링 도중
+// 크롬에 종료되어 응답이 영영 안 온다. 여기서는 저장된 주소를 읽고 쓰기만 한다.
 
-// 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
 // 실물 화면은 표에 id가 없을 수도 있다. 그래서 내용으로 판별한다 —
 // '결의상태 … 대기(91)' 같은 글자, 또는 날짜와 금액이 든 8칸 이상짜리 표.
 function looksLikeReceiptList() {

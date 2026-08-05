@@ -4,12 +4,17 @@
 // Playwright의 route()는 확장이 chrome.tabs.create로 연 탭에 걸리지 않는다.
 // 그래서 --host-resolver-rules로 도메인 자체를 로컬 https 서버에 매핑한다(네트워크 계층이라 확장 탭에도 적용).
 import { chromium } from 'playwright';
+
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 확장은 Playwright의 headless:true에서 서비스 워커가 안 뜬다 —
+// 크롬의 새 헤드리스 모드를 인자로 켜야 확장이 정상 로드된다. HEADLESS=0 이면 창을 띄운다.
+const HEADLESS = process.env.HEADLESS !== '0';
+const HEADLESS_ARGS = HEADLESS ? ['--headless=new'] : [];
 
 const EXT = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const workdir = mkdtempSync(join(tmpdir(), 'wp-ext-'));
@@ -219,7 +224,8 @@ const ctx = await chromium.launchPersistentContext(join(workdir, 'profile'), {
   headless: false,
   ignoreHTTPSErrors: true,
   args: [
-    `--disable-extensions-except=${EXT}`,
+        ...HEADLESS_ARGS,
+`--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
     `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT},MAP webank.appplay.co.kr 127.0.0.1:${PORT}`,
     '--ignore-certificate-errors',
@@ -483,6 +489,32 @@ const reusedTrace = await page.evaluate(() => {
 console.log('  재실행 결과:', again.kpis);
 checks.push(['기억한 주소로 재실행', again.rows.length === 3],
   ['재실행이 기억해 둔 주소를 씀', /기억해 둔 주소/.test(reusedTrace)]);
+// 사람이 앱을 열어 두고 버튼을 눌렀을 때 주소를 잡는지.
+// 이 감시는 패널에서 돈다 — 서비스 워커에 두면 몇 분 폴링 도중 종료돼 응답이 안 온다.
+await page.evaluate(() => new Promise((r) => chrome.storage.local.remove('bizplayCardAppUrl', r)));
+const appTab = await ctx.newPage();
+await appTab.goto('https://webank.appplay.co.kr/rcard_main.act').catch(() => {});
+await appTab.waitForTimeout(800);
+const grabbed = await page.evaluate(async () => {
+  const isReceiptListPage = () => {
+    const t = document.body ? document.body.innerText || '' : '';
+    if (/대기\s*\(\d+\)/.test(t) || /결의상태/.test(t)) return true;
+    return [...document.querySelectorAll('table tr')].some((tr) =>
+      tr.querySelectorAll('td').length >= 8 && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || ''));
+  };
+  const tabs = await chrome.tabs.query({ url: ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'] });
+  for (const t of tabs) {
+    if (!t.url || /main_0003|bizpr_main/.test(t.url)) continue;
+    const hits = await chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, func: isReceiptListPage }).catch(() => []);
+    if ((hits || []).some((h) => h.result)) return t.url;
+  }
+  return '';
+});
+console.log('\n── 열려 있는 앱에서 주소 잡기 ──');
+console.log('  ' + (grabbed || '(못 잡음)'));
+checks.push(['열려 있는 앱 주소 인식', /rcard_main/.test(grabbed)]);
+await appTab.close();
+
 
 // 자동화 5개 전부 상단바 제목이 제 이름으로 바뀌는지.
 // 제목은 start()에서 실행 전에 세워지므로 수집이 성공할 필요가 없다 —

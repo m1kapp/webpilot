@@ -4,12 +4,17 @@
 // 그래서 두 가지를 본다 — 화살표가 먹는 화면에서는 제대로 옮겨가고,
 // 안 먹는 화면에서는 틀린 숫자 대신 에러를 낸다.
 import { chromium } from 'playwright';
+
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 확장은 Playwright의 headless:true에서 서비스 워커가 안 뜬다 —
+// 크롬의 새 헤드리스 모드를 인자로 켜야 확장이 정상 로드된다. HEADLESS=0 이면 창을 띄운다.
+const HEADLESS = process.env.HEADLESS !== '0';
+const HEADLESS_ARGS = HEADLESS ? ['--headless=new'] : [];
 
 const EXT = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const wd = mkdtempSync(join(tmpdir(), 'o-')), PORT = 18457;
@@ -66,7 +71,8 @@ await new Promise((r) => srv.listen(PORT, '127.0.0.1', r));
 
 const ctx = await chromium.launchPersistentContext(join(wd,'p'), {
   headless: false, ignoreHTTPSErrors: true,
-  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`,
+  args: [...HEADLESS_ARGS,
+    `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`,
          `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT}`, '--ignore-certificate-errors'],
 });
 const sw = ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker');

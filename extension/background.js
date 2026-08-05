@@ -3,7 +3,7 @@
 import { getLeaveStatus } from './lib/timeinout.js';
 import { getOvertime } from './lib/overtime.js';
 import { getCorrectionTargets } from './lib/correction.js';
-import { getYagunTaxi, getYasik, captureCardAppUrl } from './lib/bizplay.js';
+import { getYagunTaxi, getYasik } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
 import { openLoginAndWait } from './lib/tab.js';
 
@@ -27,13 +27,6 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     openLoginAndWait(msg.loginUrl)
       .then((ok) => reply({ ok }))
       .catch(() => reply({ ok: false }));
-    return true;
-  }
-
-  // 카드영수증 앱은 확장이 눌러도 안 열린다(진짜 클릭만 받는다).
-  // 사람이 한 번 직접 여는 동안 지켜보다가 주소를 붙잡아 저장한다 — 로그인 흐름과 같은 발상.
-  if (msg?.type === 'capture-app-url') {
-    captureCardAppUrl().then((url) => reply({ ok: !!url, url })).catch(() => reply({ ok: false }));
     return true;
   }
 

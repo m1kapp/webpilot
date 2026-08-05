@@ -210,16 +210,59 @@ async function saveFlowKey() {
 
 // 로그인하기 → 로그인 페이지 열고 완료 대기 → 그 자동화 자동 재실행
 // 앱을 사람이 여는 동안 지켜보다가 주소를 잡으면 자동으로 이어서 실행한다.
+//
+// ⚠ 이 감시는 반드시 패널에서 돈다. 백그라운드(서비스 워커)에 두면 안 된다 —
+//    MV3 서비스 워커는 잠깐 놀면 크롬이 죽여서 몇 분짜리 폴링이 중간에 끊기고,
+//    패널은 응답을 영영 못 받은 채 "창을 열었어요"에 멈춰 있게 된다.
+//    사이드 패널은 열려 있는 동안 살아 있고 확장 페이지라 tabs·scripting을 직접 쓴다.
+const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
+const CAPTURE_MS = 180000;
+
+// 미결의 목록 화면인지 — id가 없는 실물 화면도 통과하도록 내용으로 본다.
+function isReceiptListPage() {
+  const t = document.body ? document.body.innerText || '' : '';
+  if (/대기\s*\(\d+\)/.test(t) || /결의상태/.test(t)) return true;
+  return [...document.querySelectorAll('table tr')].some((tr) =>
+    tr.querySelectorAll('td').length >= 8 && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || ''));
+}
+
+async function findOpenAppUrl() {
+  const tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS }).catch(() => []);
+  for (const t of tabs) {
+    if (!t.url || /main_0003|bizpr_main/.test(t.url)) continue;
+    const hits = await chrome.scripting.executeScript({
+      target: { tabId: t.id, allFrames: true }, func: isReceiptListPage,
+    }).catch(() => []);
+    if ((hits || []).some((h) => h.result)) return t.url;
+  }
+  return '';
+}
+
 async function captureAppUrlThenRetry(needsAppUrl) {
   $('run-actions').hidden = true;
-  $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink)">
-    <b>${esc(needsAppUrl.service)}</b> 창을 열었어요 · <b>${esc(needsAppUrl.app)}</b>을 눌러 열면 자동으로 이어서 실행합니다</div>`;
-  const res = await chrome.runtime.sendMessage({ type: 'capture-app-url' });
-  if (!res?.ok) {
+  const say = (msg) => { $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink);line-height:1.6">${msg}</div>`; };
+
+  // 이미 열려 있으면 굳이 새로 열지 않는다(지금 화면에 띄워 둔 경우가 많다).
+  let url = await findOpenAppUrl();
+  if (!url) {
+    await chrome.tabs.create({ url: 'https://www.bizplay.co.kr/main_0003_01.act', active: true });
+    say(`<b>${esc(needsAppUrl.service)}</b> 창을 열었어요 · <b>${esc(needsAppUrl.app)}</b>을 눌러 열면 자동으로 이어서 실행합니다`);
+  }
+  const deadline = Date.now() + CAPTURE_MS;
+  while (!url && Date.now() < deadline) {
+    await sleep(1200);
+    url = await findOpenAppUrl();
+    const left = Math.ceil((deadline - Date.now()) / 1000);
+    if (!url) say(`<b>${esc(needsAppUrl.app)}</b>을 여는 중인지 지켜보고 있어요 · ${left}초 남음`);
+  }
+  if (!url) {
     $('run-actions').hidden = false;
-    $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink)">앱 주소를 잡지 못했어요. 다시 시도해주세요.</div>`;
+    say('앱 주소를 잡지 못했어요. 카드영수증 목록이 보이는 상태에서 다시 눌러주세요.');
     return;
   }
+  await chrome.storage.local.set({ bizplayCardAppUrl: url });
+  say(`앱 주소를 기억했어요 · <span style="color:var(--muted)">${esc(url)}</span><br>이어서 실행합니다…`);
+  await sleep(400);
   buildSteps(current);
   await execute(current);
 }
