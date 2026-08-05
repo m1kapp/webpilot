@@ -8,6 +8,8 @@ import { isNight, isYasikMeal, yasikClass } from '../core/expense.js';
 import { yagunDateOf } from '../core/calendar.js';
 
 const HOST = 'https://www.bizplay.co.kr';
+// 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
+const BUILD = '2026-07-31d';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -24,9 +26,12 @@ function findCardReceipt() {
     const cls = typeof el.className === 'string' && el.className.trim()
       ? '.' + el.className.trim().split(/\s+/).slice(0, 4).join('.') : '';
     const r = el.getBoundingClientRect();
-    const a = (k) => { const v = el.getAttribute?.(k); return v ? ` ${k}=${v.slice(0, 70)}` : ''; };
+    // 속성을 전부 적는다. 앱 주소가 data-* 같은 데 들어 있으면 클릭 없이 그걸로 열 수 있다.
+    const attrs = [...(el.attributes || [])]
+      .filter((a) => a.name !== 'class' && a.name !== 'style')
+      .map((a) => ` ${a.name}=${String(a.value).slice(0, 60)}`).join('');
     return `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls} [${Math.round(r.width)}x${Math.round(r.height)}]`
-      + `${el.offsetParent ? '' : ' (숨김)'}${a('href')}${a('onclick')}${a('alt')}`;
+      + `${el.offsetParent ? '' : ' (숨김)'}${attrs}`;
   };
   const hit = (el) => {
     const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
@@ -40,7 +45,10 @@ function findCardReceipt() {
     .filter((el) => el.offsetParent !== null)
     .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
     .filter((t) => t && t.length < 24).slice(0, 15);
-  return { url: location.href, count: found.length, items: found.slice(0, 6).map(desc), sample };
+  // 가장 바깥 타일의 HTML 원문 — 앱 id·핸들러 단서가 여기 다 있다.
+  const tile = found.map((el) => el.closest('a,li,[onclick]')).find(Boolean);
+  const html = tile ? tile.outerHTML.replace(/\s+/g, ' ').slice(0, 400) : '';
+  return { url: location.href, count: found.length, items: found.slice(0, 6).map(desc), sample, html };
 }
 
 // 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
@@ -180,7 +188,8 @@ async function openCardApp(month, onProgress) {
       `현재 화면: ${beforeUrl}`,
       '로그인이 풀리지 않았는지, 카드영수증 앱이 화면에 보이는지 확인해주세요.',
       '',
-      '아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요.',
+      `아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요. (빌드 ${BUILD})`,
+      `아이콘 찾음: ${iconFrame == null ? '아니오' : '예'} · 클릭 후 새 프레임: ${inlineFrame ? inlineFrame.url.slice(0, 60) : '없음'}`,
       `프레임 ${frames.length}개를 훑었습니다.`,
     ];
     for (const f of frames) {
@@ -188,6 +197,7 @@ async function openCardApp(month, onProgress) {
       if (!r) { lines.push(`  · (프레임 ${f.frameId}: 읽지 못함)`); continue; }
       lines.push(`  · ${r.url.slice(0, 90)}  — 일치 ${r.count}개`);
       for (const x of r.items || []) lines.push(`      ${x}`);
+      if (r.html) lines.push('      타일 원문:', `        ${r.html}`);
       if (!r.count && r.sample?.length) lines.push(`      이 화면에 보이는 것: ${r.sample.join(' / ')}`);
     }
     e.detail = lines.join('\n');
