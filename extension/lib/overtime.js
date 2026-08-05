@@ -41,7 +41,9 @@ export async function getOvertime(month, onProgress = () => {}) {
 
     onProgress('휴가·출장 반영 중');
     // 휴가 byDay는 이미 있는 연차 수집 로직 재사용
-    const leaves = await getLeaveByDay(tabId, month).catch(() => ({}));
+    // 휴가 수집 실패를 "휴가 없음"으로 바꾸면 휴가일을 출퇴근 누락으로 오인한다.
+    // 실제 휴가가 0건이면 정상적으로 {}가 오므로, 예외는 그대로 올려 잘못된 정정 제안을 막는다.
+    const leaves = await getLeaveByDay(tabId, month);
     const trips = await fetchTrips(tabId, month).catch(() => ({}));
     const corrections = await fetchSubmittedCorrections(tabId, month).catch(() => ({}));
     onProgress('휴가·출장 반영 중', {

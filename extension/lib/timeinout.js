@@ -118,13 +118,16 @@ export async function getLeaveByDay(tabId, month) {
     }, shown > year ? -1 : 1);
     await sleep(900);
   }
-  const rows = await evaluate(tabId, () =>
+  // evaluate 안의 함수는 페이지로 직렬화된다. 바깥 변수(month)를 그 안에서 참조하면
+  // ReferenceError가 나므로, DOM 원문만 가져온 뒤 확장 백그라운드에서 월을 거른다.
+  const allRows = await evaluate(tabId, () =>
     [...document.querySelectorAll('ul.card_list > li')].map((li) => ({
       href: li.querySelector('a')?.getAttribute('href') || '',
       date: (li.querySelector('.card_date .date')?.innerText || '').match(/\d{4}-\d{2}-\d{2}/)?.[0] || '',
       detail: (li.querySelector('.inout_area li:nth-child(1) span')?.innerText || '').trim(),
       days: parseFloat((li.querySelector('.inout_area li:nth-child(2) span')?.innerText || '').replace(/[^0-9.]/g, '')) || 0,
-    })).filter((r) => r.date && r.href && r.date.startsWith(month)));
+    })).filter((r) => r.date && r.href));
+  const rows = (allRows || []).filter((r) => r.date.startsWith(month));
 
   // 그 달 것만 종류 확인
   const hrefs = [...new Set(rows.map((r) => r.href))].slice(0, MAX_DETAIL);

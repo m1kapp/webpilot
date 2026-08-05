@@ -39,16 +39,21 @@ export async function getCorrectionTargets(month, onProgress = () => {}) {
     try { act = await getDayActivity(ds); }
     catch (e) { if (e.needsFlowKey) throw e; /* 개별 Flow 실패는 스킵 */ }
     const { caseLabel, suggestIn, suggestOut } = suggestCorrection(d, act.firstText, act.lastText);
+    // 양쪽 기록도 Flow 활동도 없는 날은 휴가 수집 이상일 가능성을 배제할 수 없다.
+    // 기본 10:30~19:30을 만들어 실제 신청 가능하게 두지 않고, 사람이 확인할 제외행으로 남긴다.
+    const noEvidence = !d.inText && !d.outText && act.events.length === 0;
     items.push({
       date: ds, dow: d.dow, status: caseLabel, submitted: false,
       curIn: d.inText || '', curOut: d.outText || '',
       flowEvents: act.events.map((e) => `${e.startText}~${e.endText} ${e.name}`),
       flowFirst: act.firstText, flowLast: act.lastText,
-      suggestIn, suggestOut, hasEvidence: act.events.length > 0,
+      suggestIn: noEvidence ? '' : suggestIn, suggestOut: noEvidence ? '' : suggestOut,
+      hasEvidence: act.events.length > 0, excluded: noEvidence,
     });
   }
-  const need = items.filter((i) => !i.submitted).length;
-  return { month, items, summary: { total: items.length, need, submitted: items.length - need } };
+  const need = items.filter((i) => !i.submitted && i.suggestIn && i.suggestOut).length;
+  const submitted = items.filter((i) => i.submitted).length;
+  return { month, items, summary: { total: items.length, need, submitted, excluded: items.length - need - submitted } };
 }
 
 // 타임인아웃 정정 실제 신청. rows: [{ date, in, out }]

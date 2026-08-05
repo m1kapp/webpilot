@@ -247,13 +247,17 @@ async function runWriteAction({ payload, steps, label, render }) {
 }
 
 // Flow API 키 입력 → 검증·저장 → 자동 재실행
+const FLOW_API_KEY_URL = 'https://api.flow.team/signin?redirectTo=/account/api-keys&message=LOGIN_REQUIRED';
 function promptFlowKey() {
   const active = stepEls.find((el) => el.classList.contains('active')) || stepEls[stepEls.length - 1];
   active?.classList.remove('active'); active?.classList.add('err');
   $('run-err').hidden = false;
   $('run-err').innerHTML = `
     <div style="color:var(--ink);font-weight:700;margin-bottom:3px">Flow API 키가 필요해요</div>
-    <div style="font-size:12.5px;color:var(--muted);margin-bottom:9px">Flow → 설정 → 오픈 API에서 발급한 키를 붙여넣으세요. 이 기기에만 저장됩니다.</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:9px">아래 페이지에서 로그인한 뒤 설정 → 오픈 API에서 키를 발급하세요. 키는 이 기기에만 저장됩니다.</div>
+    <a id="flow-key-link" class="flow-key-link" href="${FLOW_API_KEY_URL}" target="_blank" rel="noopener noreferrer">
+      <span>Flow API 키 발급 페이지 열기</span><span aria-hidden="true">↗</span>
+    </a>
     <input id="flow-key-input" type="password" placeholder="x-flow-api-key" autocomplete="off"
       style="width:100%;padding:9px 11px;border:1px solid #d9dcec;border-radius:9px;font:inherit;margin-bottom:8px" />
     <div id="flow-key-msg" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:6px"></div>`;
@@ -753,13 +757,14 @@ function renderCorrection(d) {
       <div class="kpis">
         <div class="kpi"><div class="l">신청 필요</div><div class="v" style="color:${s.need ? 'var(--blue)' : 'var(--ok)'}">${s.need ?? 0}<span style="font-size:14px;color:var(--muted);font-weight:600">건</span></div></div>
         <div class="kpi"><div class="l">이미 신청됨</div><div class="v" style="font-size:19px">${s.submitted ?? 0}건</div></div>
+        ${s.excluded ? `<div class="kpi"><div class="l">근거 부족 제외</div><div class="v" style="font-size:19px;color:var(--muted)">${s.excluded}건</div></div>` : ''}
       </div>
       <p style="color:var(--muted);font-size:12px;margin:12px 0 0">Flow 캘린더 활동으로 실제 근무시간대를 추정합니다. 아래 제안을 확인한 뒤 타임인아웃 수정 요청으로 제출할 수 있어요.</p>
     </div>
     <div class="card">
       <h2>누락일별 제안</h2>
       <div class="cr-list" id="cr-rows"></div>
-      <p class="foot">제안 = Flow 첫·마지막 활동 기준(출근 최대 10:30 · 퇴근 최소 18:00 · 9시간 보장).</p>
+      <p class="foot">제안 = Flow 첫·마지막 활동 기준(출근 최대 10:30 · 퇴근 최소 18:00 · 9시간 보장). 양쪽 기록과 Flow 활동이 모두 없으면 자동 신청에서 제외합니다.</p>
     </div>
     <div class="card write-card" id="correction-write">
       <div class="write-title">타임인아웃에 정정 신청</div>
@@ -785,13 +790,14 @@ function renderCorrection(d) {
         <div class="cr-badge ok">✓</div></div>`;
     }
     const flow = x.hasEvidence ? `Flow ${esc(x.flowFirst || '?')}~${esc(x.flowLast || '?')}` : 'Flow 활동 없음';
-    return `<div class="cr-row">
+    const actionable = !!(x.suggestIn && x.suggestOut);
+    return `<div class="cr-row" data-actionable="${actionable}">
       <div class="cr-day">${day}<span>${esc(x.dow)}</span></div>
       <div class="cr-mid">
         <div class="cr-case">${esc(x.status || '')}</div>
-        <div class="cr-detail">현재 ${esc(x.curIn || '–')}~${esc(x.curOut || '–')} · ${flow}</div>
+        <div class="cr-detail">현재 ${esc(x.curIn || '–')}~${esc(x.curOut || '–')} · ${flow}${actionable ? '' : ' · 자동 제안 제외'}</div>
       </div>
-      <div class="cr-sug">${esc(x.suggestIn || '')}<span class="ar">→</span>${esc(x.suggestOut || '')}</div>
+      <div class="cr-sug">${actionable ? `${esc(x.suggestIn)}<span class="ar">→</span>${esc(x.suggestOut)}` : '제외'}</div>
     </div>`;
   }).join('') || `<div style="padding:18px;text-align:center;color:var(--muted)">정정할 누락일이 없어요 🎉</div>`;
 

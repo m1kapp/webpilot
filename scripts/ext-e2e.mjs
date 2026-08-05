@@ -215,8 +215,9 @@ const server = createServer(
   (req, res) => {
     // Flow API(api.flow.team) — JSON. 어느 날짜든 10:00~19:30 활동을 준다(제안 근거).
     if ((req.headers.host || '').includes('flow.team')) {
+      const noActivity = /startDateTime=20260605/.test(req.url);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      return res.end(JSON.stringify({ response: { success: true, data: { events: [
+      return res.end(JSON.stringify({ response: { success: true, data: { events: noActivity ? [] : [
         { eventName: '오전 스크럼', allDayYn: 'N', eventStartDateTime: '20260604100000', eventFinishDateTime: '20260604103000' },
         { eventName: '개발', allDayYn: 'N', eventStartDateTime: '20260604140000', eventFinishDateTime: '20260604193000' },
       ] } } }));
@@ -429,19 +430,27 @@ await launchAutomation('correction', '2026-06');
 await page.waitForSelector('#flow-key-input', { timeout: 30000 })
   .catch(async () => { throw new Error('Flow 키 프롬프트 안 뜸 — 오류창: ' + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
 const flowPrompt = true;
+const flowQuickLink = await page.$eval('#flow-key-link', (e) => ({ href: e.href, target: e.target, text: e.textContent.trim() }));
+const flowQuickLinkOk = flowQuickLink.href === 'https://api.flow.team/signin?redirectTo=/account/api-keys&message=LOGIN_REQUIRED'
+  && flowQuickLink.target === '_blank' && /Flow API 키 발급 페이지/.test(flowQuickLink.text);
 console.log('\n── 출퇴근 정정 ──');
 console.log('  Flow 키 프롬프트: ✓');
+console.log('  Flow 키 발급 퀵링크:', flowQuickLinkOk ? '✓' : '✗');
+await page.screenshot({ path: '/tmp/ext-flow-key.png', fullPage: true });
 await page.fill('#flow-key-input', 'test-flow-key-123');
 await page.click('#run-retry');
 await page.waitForSelector('#view-result:not([hidden]) #cr-rows', { timeout: 30000 })
   .catch(async () => { throw new Error('정정 결과 실패 — 오류창: ' + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
 await page.waitForTimeout(300);
 const crRows = await page.$$eval('#cr-rows .cr-row', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+const crActionableCount = await page.$$eval('#cr-rows .cr-row[data-actionable="true"]', (els) => els.length);
 const crSummary = await page.$eval('.kpis', (e) => e.innerText.replace(/\s+/g, ' '));
 console.log('  요약:', crSummary);
 console.log('  대상:', crRows.length, '건');
 for (const r of crRows.slice(0, 4)) console.log('    ', r);
 const crHasSuggestion = crRows.some((r) => /→|~/.test(r)) && /신청 필요/.test(crSummary);
+const leaveExcludedFromCorrection = !crRows.some((r) => /^(11|12)\s/.test(r));
+const noEvidenceExcluded = crRows.some((r) => /^5\s/.test(r) && /Flow 활동 없음.*자동 제안 제외.*제외/.test(r));
 // 결과를 보는 것만으로는 쓰지 않고, 확인 버튼 두 번 뒤에만 실제 수정 요청이 나가야 한다.
 await page.click('#correction-submit-open');
 const correctionConfirmVisible = await page.$eval('#correction-submit-confirm', (e) => !e.hidden);
@@ -450,7 +459,7 @@ await page.click('#correction-submit-go');
 await page.waitForSelector('#view-result:not([hidden])', { timeout: 60000 });
 const correctionSubmitText = await page.$eval('#view-result', (e) => e.innerText.replace(/\s+/g, ' '));
 const correctionSubmitOk = /정정 신청 결과/.test(correctionSubmitText)
-  && correctionSubmitRequests === crRows.length && /실패 0건/.test(correctionSubmitText);
+  && correctionSubmitRequests === crActionableCount && /실패 0건/.test(correctionSubmitText);
 console.log('  확인 전 쓰기 없음:', noCorrectionBeforeConfirm ? '✓' : '✗', '· 확인 UI:', correctionConfirmVisible ? '✓' : '✗',
   '· 실제 신청:', correctionSubmitRequests, '건');
 await page.screenshot({ path: '/tmp/ext-correction.png', fullPage: true });
@@ -493,6 +502,9 @@ checks.push(['패널에서 1열', panel.columns === 1],
   ['초과근무 결과 데이터', otHasData],
   ['초과근무 표에 초과일 집계', otCatchesOvertime],
   ['정정 Flow 키 프롬프트', flowPrompt],
+  ['Flow API 키 발급 퀵링크', flowQuickLinkOk],
+  ['휴가일은 정정 후보에서 제외', leaveExcludedFromCorrection],
+  ['양쪽 기록·Flow 근거 없는 날은 자동 제안 제외', noEvidenceExcluded],
   ['정정 결과·제안값', crHasSuggestion],
   ['정정 확인 전 쓰기 없음', noCorrectionBeforeConfirm && correctionConfirmVisible],
   ['정정 확인 후 실제 신청', correctionSubmitOk],
