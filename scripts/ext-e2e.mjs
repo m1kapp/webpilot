@@ -198,7 +198,7 @@ const bzApprovalModal = `<!doctype html><html lang="ko"><body>
 <button id="request">결재요청</button>
 <script>
 document.getElementById('request').onclick=function(){window.open('/approval_line.act')};
-window.openEvidence=function(){var f=document.createElement('form');f.method='post';f.action='/upload_inline.act';f.target='bizplay-upload';var h=document.createElement('input');h.type='hidden';h.name='mode';h.value='evidence';f.appendChild(h);document.body.appendChild(f);window.open('', 'bizplay-upload');f.submit()};
+window.openEvidence=function(){var f=document.createElement('form');f.method='post';f.action='https://platform.bizplay.co.kr/comm_0012_01.act';f.target='BB_file';var h=document.createElement('input');h.type='hidden';h.name='mode';h.value='evidence';f.appendChild(h);document.body.appendChild(f);window.open('', 'BB_file');f.submit()};
 <\/script></body></html>`;
 const bzPurposeForm = `<!doctype html><html lang="ko"><body>
 ${[0, 1].map((i) => `<div class="purpose_combo" id="TRAN_KIND_CD${i}">
@@ -242,6 +242,13 @@ const server = createServer(
       return res.end(bzPortalJs);
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+
+    // 증빙 업로드는 appplay가 아니라 platform.bizplay.co.kr의 공통 팝업에서 돈다.
+    if ((req.headers.host || '').startsWith('platform.bizplay')) {
+      if (path === '/comm_0012_01.act') { inlineUploadLoads++; return res.end(bzUploadInline); }
+      if (path === '/__expense_upload') { expenseUploadRequests++; return res.end('ok'); }
+      return res.end('<!doctype html><body>platform bizplay</body>');
+    }
 
     // 카드영수증 앱은 회사별 하위 도메인(appplay.co.kr)에서 돈다 — 실물이 그랬다.
     if ((req.headers.host || '').includes('appplay')) {
@@ -289,7 +296,7 @@ const ctx = await chromium.launchPersistentContext(join(workdir, 'profile'), {
         ...HEADLESS_ARGS,
 `--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
-    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT},MAP webank.appplay.co.kr 127.0.0.1:${PORT}`,
+    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT},MAP platform.bizplay.co.kr 127.0.0.1:${PORT},MAP webank.appplay.co.kr 127.0.0.1:${PORT}`,
     '--ignore-certificate-errors',
   ],
 });
