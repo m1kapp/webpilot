@@ -169,12 +169,16 @@ async function execute(auto) {
       e.detail = res?.detail || '';
       throw e;
     }
+    // 늦게 끝난 실행이 지금 보고 있는 화면을 밀어내면 안 된다.
+    // (로그인·앱주소 대기처럼 몇 분씩 걸리는 흐름이 있어서 그 사이 다른 자동화로 옮겨갈 수 있다)
+    if (current !== auto) return;
     markAllDone();
     await sleep(280); // 마지막 체크가 잠깐 보이도록
     auto.render(res.data);
     appendTrace();     // 렌더가 view-result를 통째로 갈아치우므로 그 뒤에 붙인다
     show('result');
   } catch (e) {
+    if (current !== auto) return;
     if (e.needsFlowKey) return promptFlowKey();
     failCurrentStep(e.message, e.needsLogin, e.detail, e.needsAppUrl);
   }
@@ -252,6 +256,7 @@ async function findOpenAppUrl() {
 }
 
 async function captureAppUrlThenRetry(needsAppUrl) {
+  const mine = current;            // 이 대기가 끝날 때까지 화면 주인이 그대로인지 확인용
   $('run-actions').hidden = true;
   const say = (msg) => { $('run-err').innerHTML = `<div style="font-size:13px;color:var(--ink);line-height:1.6">${msg}</div>`; };
 
@@ -282,25 +287,29 @@ async function captureAppUrlThenRetry(needsAppUrl) {
       if (!/^https?:\/\//.test(v)) { $('cap-url')?.focus(); return; }
       await chrome.storage.local.set({ bizplayCardAppUrl: v });
       $('run-actions').hidden = true;
-      buildSteps(current);
-      await execute(current);
+      if (current !== mine) return;
+      buildSteps(mine);
+      await execute(mine);
     };
     return;
   }
   await chrome.storage.local.set({ bizplayCardAppUrl: url });
   say(`앱 주소를 기억했어요 · <span style="color:var(--muted)">${esc(url)}</span><br>이어서 실행합니다…`);
   await sleep(400);
-  buildSteps(current);
-  await execute(current);
+  if (current !== mine) return;   // 기다리는 동안 다른 자동화로 옮겨갔으면 조용히 물러난다
+  buildSteps(mine);
+  await execute(mine);
 }
 
 async function loginThenRetry(needsLogin) {
+  const mine = current;   // 로그인은 몇 분이 걸릴 수 있다 — 그 사이 화면이 바뀌면 물러난다
   $('run-err').innerHTML = `<div style="display:flex;align-items:center;gap:9px;color:#5a6172;font-size:13px">
     <span class="dot" style="width:16px;height:16px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite"></span>
     <b>${esc(needsLogin.service)}</b> 로그인 창을 열었어요 · 로그인하면 자동으로 이어서 실행합니다</div>`;
   $('run-actions').hidden = true;
   const res = await chrome.runtime.sendMessage({ type: 'login', loginUrl: needsLogin.loginUrl });
-  if (res?.ok && current) return start(current);         // 로그인 완료 → 재실행
+  if (res?.ok && current === mine) return start(mine);   // 로그인 완료 → 재실행
+  if (current !== mine) return;                          // 그 사이 다른 화면으로 옮겨갔으면 조용히
   // 시간 초과·취소
   $('run-err').innerHTML = `<div style="color:var(--red);font-weight:600">로그인이 확인되지 않았어요</div>
     <div style="font-size:12.5px;color:var(--muted);margin-top:2px">로그인을 마친 뒤 다시 시도해주세요.</div>`;
@@ -386,6 +395,14 @@ chrome.runtime.onMessage.addListener((msg) => {
   advanceTo(msg.text || '');
   if (msg.evidence) trace.push({ step: msg.text || '', at: Date.now(), data: msg.evidence });
 });
+
+// 버전 표시 — 사용자가 화면을 캡처해 보낼 때 어느 빌드인지 바로 드러나야 한다.
+// version_name에 빌드 표식이 들어 있고(예: "0.1.0 (2026-08-05b)") 없으면 version으로 떨어진다.
+{
+  const mf = chrome.runtime.getManifest();
+  const el = $('app-ver');
+  if (el) el.textContent = `Webwing ${mf.version_name || mf.version}`;
+}
 
 // ── 상단바 · 연도 ──
 for (const y of [thisYear, thisYear - 1]) {

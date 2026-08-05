@@ -519,6 +519,29 @@ await appTab.close();
 // 자동화 5개 전부 상단바 제목이 제 이름으로 바뀌는지.
 // 제목은 start()에서 실행 전에 세워지므로 수집이 성공할 필요가 없다 —
 // 비즈플레이를 안 띄운 채로도 야근택시·야근식비까지 확인할 수 있다.
+// 버전이 홈 푸터에 보이는지 — 화면 캡처만으로 빌드를 판별할 수 있어야 한다.
+await page.goto(`chrome-extension://${extId}/page/index.html`);
+await page.waitForSelector('.auto');
+const shownVer = await page.$eval('#app-ver', (e) => e.textContent.trim()).catch(() => '');
+console.log('\n── 푸터 버전 ──');
+console.log('  ' + (shownVer || '(없음)'));
+checks.push(['홈 푸터에 버전 표시', /^Webwing \d+\.\d+\.\d+/.test(shownVer)]);
+
+// 늦게 끝난 실행이 지금 보고 있는 화면을 덮으면 안 된다.
+// 야근택시를 띄워 두고 목록으로 나간 뒤, 그 실행이 끝나도 홈이 그대로여야 한다.
+await page.click('.auto[data-id="yagun"]');
+await page.waitForSelector('#view-run:not([hidden])');
+await page.click('#back');
+await page.waitForSelector('#view-home:not([hidden])');
+await page.waitForTimeout(6000);
+const stillHome = await page.evaluate(() => ({
+  home: !document.getElementById('view-home').hidden,
+  title: document.getElementById('brand-name').textContent.trim(),
+}));
+console.log('\n── 늦게 끝난 실행이 화면을 덮는가 ──');
+console.log(`  홈 유지: ${stillHome.home} · 제목: ${stillHome.title}`);
+checks.push(['늦게 끝난 실행이 화면을 안 덮음', stillHome.home && stillHome.title === 'Webwing']);
+
 console.log('\n── 자동화별 상단바 제목 ──');
 const titles = [];
 for (const id of ['leave-personal', 'overtime', 'correction', 'yagun', 'yasik']) {

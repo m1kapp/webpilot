@@ -59,6 +59,9 @@
     border-radius:999px; padding:3px 8px; }
   .auto .chev { flex:none; color:#c1c8d6; font-size:16px; }
   .home-foot { color:var(--muted); font-size:11.5px; margin:16px 4px 0; line-height:1.7; }
+  /* 버전 — 화면을 캡처해 보낼 때 어느 빌드인지 바로 알 수 있게 */
+  .home-foot .ver { display:block; margin-top:6px; color:var(--faint); font-size:11px;
+    font-variant-numeric:tabular-nums; }
 
   /* ── 실행 중: 목록을 덮는 스크림 + 단계 로그 ── */
   .run { position:absolute; inset:0; background:var(--bg); display:flex; flex-direction:column;
@@ -282,7 +285,8 @@
     <!-- 홈: 자동화 목록 -->
     <div id="view-home">
       <div id="auto-list-wrap"></div>
-      <p class="home-foot">타임인아웃·비즈플레이에 <b>로그인된 상태</b>에서 실행돼요. 아이디·비밀번호는 저장하지 않습니다.</p>
+      <p class="home-foot">타임인아웃·비즈플레이에 <b>로그인된 상태</b>에서 실행돼요. 아이디·비밀번호는 저장하지 않습니다.
+        <span class="ver" id="app-ver"></span></p>
     </div>
 
     <!-- 실행 중: 목록 위를 덮음 -->
