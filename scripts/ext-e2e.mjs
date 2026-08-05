@@ -121,7 +121,7 @@ const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-ser
 // 게다가 리스너는 isTrusted를 확인해서 합성 클릭으로는 절대 안 열린다 —
 // 이럴 때 스크립트에서 주소를 찾아 직접 여는 경로만이 답이다.
 const bzPortalJs = `
-  var SCREENS = { '카드 영수증': '/eusr_9001.act', '경비청구': '/expense_0001.act' };
+  var SCREENS = { '카드 영수증': 'https://webank.appplay.co.kr/eusr_9001_01.act', '경비청구': '/expense_0001.act' };
   document.querySelectorAll('.s3-sme-item').forEach(function (el) {
     el.addEventListener('click', function (ev) {
       if (!ev.isTrusted) return;                 // 합성 이벤트는 무시
@@ -178,6 +178,12 @@ const server = createServer(
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
 
+    // 카드영수증 앱은 회사별 하위 도메인(appplay.co.kr)에서 돈다 — 실물이 그랬다.
+    if ((req.headers.host || '').includes('appplay')) {
+      if (path === '/eusr_9001_01.act') return res.end(bzFrame);
+      return res.end('<!doctype html><body>appplay</body>');
+    }
+
     // 비즈플레이 — 런처 → 앱 → 데이터 프레임
     if ((req.headers.host || '').includes('bizplay')) {
       if (path === '/main_0003_01.act') return res.end(bzLauncher);
@@ -207,7 +213,7 @@ const ctx = await chromium.launchPersistentContext(join(workdir, 'profile'), {
   args: [
     `--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
-    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT}`,
+    `--host-resolver-rules=MAP user.timeinout.kr 127.0.0.1:${PORT},MAP api.flow.team 127.0.0.1:${PORT},MAP www.bizplay.co.kr 127.0.0.1:${PORT},MAP webank.appplay.co.kr 127.0.0.1:${PORT}`,
     '--ignore-certificate-errors',
   ],
 });
@@ -456,7 +462,7 @@ const savedAppUrl = await page.evaluate(() => new Promise((r) => {
 }));
 console.log('\n── 기억한 카드영수증 앱 주소 ──');
 console.log('  ' + (savedAppUrl || '(없음)'));
-checks.push(['앱 주소 기억', /eusr_9001/.test(savedAppUrl)]);
+checks.push(['앱 주소 기억(다른 도메인)', /webank\.appplay\.co\.kr\/eusr_9001_01/.test(savedAppUrl)]);
 
 // 기억한 주소로 다시 돌리면 클릭 경로를 아예 건너뛰고 열려야 한다.
 const again = await runExpense('yagun');

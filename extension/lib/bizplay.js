@@ -8,8 +8,11 @@ import { isNight, isYasikMeal, yasikClass } from '../core/expense.js';
 import { yagunDateOf } from '../core/calendar.js';
 
 const HOST = 'https://www.bizplay.co.kr';
+// 카드영수증 앱은 비즈플레이가 아니라 앱 플랫폼(appplay.co.kr)의 회사별 하위 도메인에서 돈다.
+// 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
+const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-07-31f';
+const BUILD = '2026-07-31g';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -100,7 +103,7 @@ export async function captureCardAppUrl({ timeoutMs = 180000, pollMs = 1500 } = 
     await sleep(1500);
     while (Date.now() < deadline) {
       const live = await chrome.tabs.get(launcher.id).catch(() => null);
-      const tabs = await chrome.tabs.query({ url: `${HOST}/*` }).catch(() => []);
+      const tabs = await chrome.tabs.query({ url: APP_TAB_PATTERNS }).catch(() => []);
       for (const t of tabs) {
         // 프레임 어디든 미결의 목록이 보이면 그 탭의 주소가 앱 주소다.
         const hits = await evaluateAllFrames(t.id, () => ({
@@ -413,6 +416,18 @@ async function collectAttendance(months, onProgress) {
 }
 
 // ── 야근택시 (조회) ──
+// 확장에 없는 도메인에서 앱이 도는 경우, 크롬이 내는 원문은 알아보기 어렵다. 사람 말로 바꾼다.
+function wrapHostPermission(e) {
+  const m = /Cannot access contents of url "([^"]+)"/.exec(e?.message || '');
+  if (!m) return e;
+  const host = (() => { try { return new URL(m[1]).host; } catch { return m[1]; } })();
+  const err = new Error(`이 확장에 ${host} 접근 권한이 없어요`);
+  err.detail = [`카드영수증 앱이 ${host} 에서 열렸는데, 확장이 그 도메인을 읽도록 허용돼 있지 않아요.`,
+    '회사마다 앱 도메인이 달라서 생기는 문제예요. 이 주소를 알려주시면 다음 판올림에 넣겠습니다.',
+    '', `기술 정보: ${e.message}`].join('\n');
+  return err;
+}
+
 export async function getYagunTaxi(month, onProgress = () => {}) {
   const { appTab, frameId } = await openCardApp(month, onProgress);
   try {
@@ -454,7 +469,7 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
       summary: { count: items.length, withProof: withProof.length, noProof: items.length - withProof.length,
         amount: submitAmt, amountText: submitAmt.toLocaleString('en-US') + '원', totalText: total.toLocaleString('en-US') + '원' },
     };
-  } finally { await closeTab(appTab); }
+  } catch (e) { throw wrapHostPermission(e); } finally { await closeTab(appTab); }
 }
 
 // ── 야근식비 (조회) ──
@@ -497,5 +512,5 @@ export async function getYasik(month, onProgress = () => {}) {
       summary: { count: items.length, eligible: eligible.length, excluded: items.length - eligible.length,
         amount, amountText: amount.toLocaleString('en-US') + '원', totalText: total.toLocaleString('en-US') + '원' },
     };
-  } finally { await closeTab(appTab); }
+  } catch (e) { throw wrapHostPermission(e); } finally { await closeTab(appTab); }
 }

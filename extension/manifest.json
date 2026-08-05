@@ -13,7 +13,8 @@
   "host_permissions": [
     "https://user.timeinout.kr/*",
     "https://api.flow.team/*",
-    "https://www.bizplay.co.kr/*"
+    "https://www.bizplay.co.kr/*",
+    "https://*.appplay.co.kr/*"
   ],
   "background": {
     "service_worker": "background.js",
