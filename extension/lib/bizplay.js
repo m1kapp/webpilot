@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05p';
+const BUILD = '2026-08-05q';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
@@ -536,18 +536,21 @@ async function openCapturedFormTab(form) {
 async function installPopupCapture(tabId) {
   return chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN', func: () => {
     window.__webwingPopupCapture?.restore?.();
-    const state = { urls: [], forms: [], blanks: 0, frameUrl: location.href };
+    const state = { urls: [], forms: [], formRefs: [], blanks: 0, frameUrl: location.href };
     const origOpen = window.open;
     const origSubmit = HTMLFormElement.prototype.submit;
     const origRequestSubmit = HTMLFormElement.prototype.requestSubmit;
     const snapshotForm = (form, submitter) => {
       const data = new FormData(form);
       if (submitter?.name) data.append(submitter.name, submitter.value || '');
-      return { action: new URL(form.action || location.href, location.href).href,
+      return { action: new URL(form.action || location.href, location.href).href, target: form.target || '',
         method: (form.method || 'POST').toUpperCase(), enctype: form.enctype || '', baseUrl: location.href,
         fields: [...data.entries()].filter(([, v]) => typeof v === 'string') };
     };
-    const captureForm = (form, submitter) => { try { state.forms.push(snapshotForm(form, submitter)); } catch {} };
+    const captureForm = (form, submitter) => { try {
+      const refIndex = state.formRefs.push({ form, submitter }) - 1;
+      state.forms.push({ ...snapshotForm(form, submitter), refIndex });
+    } catch {} };
     const onSubmit = (event) => { event.preventDefault(); captureForm(event.target, event.submitter); };
     window.open = function (u) {
       let href = ''; try { href = u ? new URL(u, location.href).href : ''; } catch {}
@@ -567,19 +570,74 @@ async function installPopupCapture(tabId) {
       if (origRequestSubmit) HTMLFormElement.prototype.requestSubmit = origRequestSubmit;
       document.removeEventListener('submit', onSubmit, true);
     };
+    state.replay = (refIndex, targetName) => {
+      const ref = state.formRefs[refIndex]; if (!ref?.form) return false;
+      const form = ref.form; form.target = targetName;
+      if (ref.submitter?.name) {
+        const hidden = document.createElement('input'); hidden.type = 'hidden';
+        hidden.name = ref.submitter.name; hidden.value = ref.submitter.value || ''; form.appendChild(hidden);
+      }
+      state.restore();
+      try { origOpen.call(window, '', targetName); } catch {}
+      origSubmit.call(form); return true;
+    };
     window.__webwingPopupCapture = state;
     return { url: location.href };
   } }).catch(() => []);
 }
 
-async function readAndRestorePopupCapture(tabId) {
+async function readPopupCapture(tabId) {
   const rows = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN', func: () => {
     const state = window.__webwingPopupCapture;
     if (!state) return null;
-    const out = { frameUrl: state.frameUrl, urls: [...state.urls], forms: [...state.forms], blanks: state.blanks };
-    state.restore?.(); delete window.__webwingPopupCapture; return out;
+    return { frameUrl: state.frameUrl, urls: [...state.urls], forms: [...state.forms], blanks: state.blanks };
   } }).catch(() => []);
   return (rows || []).map((x) => ({ frameId: x.frameId, result: x.result })).filter((x) => x.result);
+}
+
+async function restorePopupCapture(tabId) {
+  await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN', func: () => {
+    window.__webwingPopupCapture?.restore?.(); delete window.__webwingPopupCapture;
+  } }).catch(() => []);
+}
+
+// 이름이 지정된 실제 탭을 먼저 만든 뒤 캡처 당시의 원본 form.submit을 다시 호출한다.
+// 복제 폼과 달리 Bizplay가 폼 객체에 심어 둔 상태와 named-window/opener 관계가 보존된다.
+async function replayCapturedFormToNamedTab(sourceTabId, sourceFrameId, form) {
+  if (!form?.action || !/^https:\/\/(?:[^/]+\.)?(?:appplay|bizplay)\.co\.kr\//i.test(form.action)) return null;
+  const targetName = form.target && !/^_(?:self|blank|parent|top)$/i.test(form.target)
+    ? form.target : `webwing-upload-${Date.now()}`;
+  const seed = form.baseUrl || new URL(form.action).origin;
+  const targetTabId = await openTab(seed).catch(() => null);
+  if (targetTabId == null) return null;
+  const named = await evaluate(targetTabId, (name) => { window.name = name; return window.name === name; }, targetName,
+    { world: 'MAIN' }).catch(() => false);
+  if (!named) { await closeTab(targetTabId); return null; }
+  let resolveCreated;
+  const created = new Promise((resolve) => { resolveCreated = resolve; });
+  const onCreated = (tab) => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(tab.id); };
+  chrome.tabs.onCreated.addListener(onCreated);
+  const createdTimer = setTimeout(() => { chrome.tabs.onCreated.removeListener(onCreated); resolveCreated(null); }, 2600);
+  const replayed = await evaluate(sourceTabId, ({ refIndex, name }) =>
+    !!window.__webwingPopupCapture?.replay?.(refIndex, name), { refIndex: form.refIndex, name: targetName },
+  { frameId: sourceFrameId, world: 'MAIN' }).catch(() => false);
+  if (!replayed) {
+    clearTimeout(createdTimer); chrome.tabs.onCreated.removeListener(onCreated);
+    await closeTab(targetTabId); return null;
+  }
+  const createdId = await created;
+  clearTimeout(createdTimer);
+  let resultTabId = targetTabId;
+  if (createdId != null && createdId !== targetTabId) {
+    resultTabId = createdId; await closeTab(targetTabId);
+  }
+  await sleep(700);
+  for (let i = 0; i < 50; i++) {
+    const tab = await chrome.tabs.get(resultTabId).catch(() => null);
+    if (!tab || tab.status === 'complete') break;
+    await sleep(250);
+  }
+  return resultTabId;
 }
 
 async function openCapturedPopup(tabId, frameId, buttonText) {
@@ -600,15 +658,21 @@ async function openCapturedPopup(tabId, frameId, buttonText) {
     el.click(); return info;
   }, buttonText, { frameId, world: 'MAIN' }).catch((e) => ({ ok: false, error: e.message }));
   await sleep(1900);
-  const captures = await readAndRestorePopupCapture(tabId);
+  const captures = await readPopupCapture(tabId);
   const createdId = await created;
   clearTimeout(createdTimer);
-  const forms = captures.flatMap((x) => x.result.forms || []);
+  const forms = captures.flatMap((x) => (x.result.forms || []).map((form) => ({ frameId: x.frameId, form })));
   const urls = captures.flatMap((x) => x.result.urls || []);
   let opened = null, source = '없음';
-  if (forms.length) { opened = await openCapturedFormTab(forms.at(-1)); source = 'POST 폼'; }
+  if (forms.length) {
+    const hit = forms.at(-1);
+    opened = await replayCapturedFormToNamedTab(tabId, hit.frameId, hit.form);
+    source = opened == null ? '원본 POST 폼 재생 실패' : '원본 POST 폼 재생';
+    if (opened == null) opened = await openCapturedFormTab(hit.form);
+  }
   if (opened == null && urls.length) { opened = await openTab(urls.at(-1)).catch(() => null); source = '팝업 URL'; }
   if (opened == null && createdId != null) { opened = createdId; source = '실제 생성 탭'; }
+  await restorePopupCapture(tabId);
   if (opened != null) {
     await chrome.tabs.update(opened, { active: false }).catch(() => {});
     for (let i = 0; i < 20; i++) {
@@ -619,7 +683,7 @@ async function openCapturedPopup(tabId, frameId, buttonText) {
   }
   const afterFrames = await listFrames(tabId);
   return { tabId: opened, debug: { clicked, source,
-    capture: captures.map((x) => `${x.frameId} · ${x.result.frameUrl} · 빈창 ${x.result.blanks} · URL ${x.result.urls.length} · 폼 ${x.result.forms.length}`),
+    capture: captures.map((x) => `${x.frameId} · ${x.result.frameUrl} · 빈창 ${x.result.blanks} · URL ${x.result.urls.length} · 폼 ${(x.result.forms || []).map((f) => `${f.method} ${f.action} target=${f.target || '(없음)'} 필드${f.fields.length}`).join(', ') || '0'}`),
     newFrames: afterFrames.filter((x) => !beforeFrames.some((b) => b.frameId === x.frameId)).map((x) => `${x.frameId} · ${x.url}`) } };
 }
 

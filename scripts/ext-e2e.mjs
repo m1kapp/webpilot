@@ -593,7 +593,13 @@ const noExpenseBeforeTaxiConfirm = expenseSubmitRequests === 0;
 await page.click('#expense-submit-open');
 const taxiConfirmVisible = await page.$eval('#expense-submit-confirm', (e) => !e.hidden);
 await page.click('#expense-submit-go');
-await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || ''), { timeout: 90000 });
+await page.waitForFunction(() => /상신 완료/.test(document.getElementById('view-result')?.innerText || '')
+  || !document.getElementById('run-err')?.hidden, { timeout: 90000 });
+const taxiSubmitError = await page.$eval('#run-err', (e) => e.hidden ? '' : e.innerText.replace(/\s+/g, ' '));
+if (taxiSubmitError) {
+  const live = await page.$$eval('#run-live div', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ')).join(' | '));
+  throw new Error(`야근택시 상신 실패 — ${taxiSubmitError} — ${live}`);
+}
 const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1 && inlineUploadLoads === 1;
 // 실행 중 "무엇을 시도했는지"가 실시간으로 쌓였는지 — 오래 걸리는 단계에서 멈춘 건지
 // 도는 건지 사용자가 구분할 수 있어야 한다. (결과로 넘어가면 사라지므로 다시 한 번 관찰)
@@ -638,7 +644,7 @@ checks.push(['야근택시 수집·증빙 판정', yagunOk], ['야근식비 수�
   ['조회 결과에 실제 첨부할 근태 증빙 PNG 미리보기', taxiProofPreviewOk],
   ['근태 증빙 클릭 시 전용 큰 보기·다운로드', proofLargeOk],
   ['야근택시 확인 전 쓰기 없음', noExpenseBeforeTaxiConfirm && taxiConfirmVisible],
-  ['부모 프레임의 빈 팝업+POST 폼과 비표준 업로드 컨트롤', inlineUploadLoads === 1],
+  ['부모 프레임의 원본 POST 폼 재생과 비표준 업로드 컨트롤', inlineUploadLoads === 1],
   ['야근택시 증빙 첨부·결재 상신', taxiSubmitOk],
   ['야근식비 상신 확인 UI', mealConfirmVisible],
   ['야근식비 결재 상신', mealSubmitOk]);
