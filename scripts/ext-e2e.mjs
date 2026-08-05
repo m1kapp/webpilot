@@ -527,6 +527,16 @@ console.log('\n── 푸터 버전 ──');
 console.log('  ' + (shownVer || '(없음)'));
 checks.push(['홈 푸터에 버전 표시', /^Webwing \d+\.\d+\.\d+/.test(shownVer)]);
 
+// 자동화 카드의 이름과 설명이 각자 줄을 갖는지. span에 display를 안 주면 한 줄로 붙어 흐른다.
+const cardLines = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => {
+  const lb = e.querySelector('.lb').getBoundingClientRect();
+  const sb = e.querySelector('.sb').getBoundingClientRect();
+  return { label: e.querySelector('.lb').textContent.trim(), stacked: sb.top >= lb.bottom - 1 };
+}));
+console.log('\n── 자동화 카드 조판 ──');
+for (const c of cardLines) console.log(`  ${c.stacked ? '✓' : '✗'} ${c.label}`);
+checks.push(['카드 이름·설명이 두 줄로', cardLines.every((c) => c.stacked)]);
+
 // 늦게 끝난 실행이 지금 보고 있는 화면을 덮으면 안 된다.
 // 야근택시를 띄워 두고 목록으로 나간 뒤, 그 실행이 끝나도 홈이 그대로여야 한다.
 await page.click('.auto[data-id="yagun"]');
