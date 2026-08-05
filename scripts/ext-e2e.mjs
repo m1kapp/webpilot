@@ -108,18 +108,26 @@ const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-ser
      클릭하면 새 탭도 window.open도 아니고 같은 페이지의 about:blank iframe이 채워진다.
      주소가 그대로라 예전 코드에는 "아무 일도 안 일어난" 것으로 보였다. -->
 <ul style="display:flex;gap:16px;list-style:none;padding:12px">
-  <li style="width:110px"><a class="s3-sme-item" id="cardapp">
+  <li style="width:110px"><a class="s3-sme-item" data-screen-label="카드 영수증">
     <img class="s3-sme-ico" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-         alt="카드 영수증" style="width:64px;height:64px;background:#dde"></a></li>
-  <li style="width:110px"><a>경비청구</a></li>
+         alt="카드 영수증" style="width:64px;height:64px;background:#dde">
+    <span class="s3-sme-label">카드 영수증</span></a></li>
+  <li style="width:110px"><a class="s3-sme-item" data-screen-label="경비청구">경비청구</a></li>
 </ul>
-<iframe id="appslot" src="about:blank" style="width:100%;height:600px;border:0"></iframe>
-<script>
-  // 리스너는 안쪽 아이콘에 걸려 있다 — 타일만 두드리면 안 먹는다.
-  document.querySelector('#cardapp .s3-sme-ico').addEventListener('mousedown', function () {
-    document.getElementById('appslot').src = '/eusr_9001.act';
-  });
-<\/script></body></html>`;
+<iframe src="about:blank" style="width:100%;height:200px;border:0"></iframe>
+<script src="/portal.js"><\/script></body></html>`;
+
+// 앱 주소가 DOM에 전혀 없고 스크립트 안에만 있는 구조(실물이 이랬다).
+// 게다가 리스너는 isTrusted를 확인해서 합성 클릭으로는 절대 안 열린다 —
+// 이럴 때 스크립트에서 주소를 찾아 직접 여는 경로만이 답이다.
+const bzPortalJs = `
+  var SCREENS = { '카드 영수증': '/eusr_9001.act', '경비청구': '/expense_0001.act' };
+  document.querySelectorAll('.s3-sme-item').forEach(function (el) {
+    el.addEventListener('click', function (ev) {
+      if (!ev.isTrusted) return;                 // 합성 이벤트는 무시
+      location.href = SCREENS[el.dataset.screenLabel];
+    });
+  });`;
 
 const bzApp = `<!doctype html><html lang="ko"><body style="margin:0">
 <iframe src="/eusr_9001.act" style="width:100%;height:700px;border:0"></iframe>
@@ -162,13 +170,19 @@ const server = createServer(
         { eventName: '개발', allDayYn: 'N', eventStartDateTime: '20260604140000', eventFinishDateTime: '20260604193000' },
       ] } } }));
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     const path = req.url.split('?')[0];
+    // 스크립트는 MIME이 맞아야 크롬이 실행한다 — writeHead 전에 처리한다.
+    if (path === '/portal.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+      return res.end(bzPortalJs);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
 
     // 비즈플레이 — 런처 → 앱 → 데이터 프레임
     if ((req.headers.host || '').includes('bizplay')) {
       if (path === '/main_0003_01.act') return res.end(bzLauncher);
       if (path === '/apps_frame.act') return res.end(bzApps);
+      if (path === '/portal.js') return res.end(bzPortalJs);   // MIME는 위 writeHead에서 정해진 대로 두면 크롬이 안 먹으므로 아래 분기 참고
       if (path === '/eusr_app.act') return res.end(bzApp);
       if (path === '/eusr_9001.act') return res.end(bzFrame);
       return res.end('<!doctype html><body>비즈플레이</body>');

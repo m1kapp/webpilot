@@ -9,7 +9,7 @@ import { yagunDateOf } from '../core/calendar.js';
 
 const HOST = 'https://www.bizplay.co.kr';
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-07-31d';
+const BUILD = '2026-07-31e';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -49,6 +49,38 @@ function findCardReceipt() {
   const tile = found.map((el) => el.closest('a,li,[onclick]')).find(Boolean);
   const html = tile ? tile.outerHTML.replace(/\s+/g, ' ').slice(0, 400) : '';
   return { url: location.href, count: found.length, items: found.slice(0, 6).map(desc), sample, html };
+}
+
+// 타일에 주소가 없을 때(href·onclick·data-url 전부 없음) 앱 주소는 페이지 JS가 만든다.
+// 그래서 스크립트 원문에서 .act 주소를 긁어 후보를 뽑는다. 인라인 스크립트와
+// 같은 출처 외부 스크립트를 함께 본다.
+// ⚠ 직렬화돼 페이지로 건너간다 — 바깥 변수를 못 데려간다.
+async function scrapeActUrls() {
+  const texts = [];
+  for (const s of document.querySelectorAll('script')) {
+    if (s.src) {
+      try {
+        const u = new URL(s.src, location.href);
+        if (u.origin === location.origin) texts.push(await (await fetch(u.href, { credentials: 'include' })).text());
+      } catch { /* 못 읽는 스크립트는 넘어간다 */ }
+    } else if (s.textContent) texts.push(s.textContent);
+  }
+  texts.push(document.documentElement.innerHTML);
+
+  const found = new Set();
+  for (const t of texts) {
+    for (const m of t.matchAll(/['"`]([^'"`\s<>]*\.act(?:\?[^'"`\s<>]*)?)['"`]/g)) found.add(m[1]);
+    for (const m of t.matchAll(/['"`]([^'"`\s<>]*eusr[^'"`\s<>]*)['"`]/g)) found.add(m[1]);
+  }
+  // 카드영수증일 법한 것부터. 9001·eusr·card·rcpt가 들어가면 가산점.
+  const score = (u) => (/eusr[_-]?9001/i.test(u) ? 6 : 0) + (/eusr/i.test(u) ? 3 : 0)
+    + (/card|rcpt|receipt|영수증/i.test(u) ? 2 : 0) + (/sme/i.test(u) ? 1 : 0);
+  return [...found]
+    .filter((u) => !/main_0003|bizpr_main|login/i.test(u))
+    .map((u) => { try { return new URL(u, location.href).href; } catch { return null; } })
+    .filter(Boolean)
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, 12);
 }
 
 // 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
@@ -174,22 +206,43 @@ async function openCardApp(month, onProgress) {
       }, undefined, { frameId: iconFrame });
     }
   }
+  // 폴백3: 타일에 주소가 없고 클릭도 아무 일을 안 하면, 페이지 스크립트에서 앱 주소를 찾아 직접 연다.
+  let actTried = [];
+  if (appTabId == null) {
+    // 스크립트도 아이콘과 같은 프레임(포털 iframe) 안에 있다 — 모든 프레임에서 긁어 합친다.
+    const perFrame = await evaluateAllFrames(launcher, scrapeActUrls).catch(() => []);
+    actTried = [...new Set(perFrame.flatMap((f) => f.result || []))];
+    for (const url of actTried.slice(0, 6)) {
+      const t = await openTab(url).catch(() => null);
+      if (t == null) continue;
+      const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
+      const ok = fid != null ? await hasPendingTable(t, fid) : await hasPendingTable(t, 0);
+      if (ok) { appTabId = t; if (fid != null) inlineFrame = { frameId: fid, url }; break; }
+      await closeTab(t);
+    }
+  }
+
   if (appTabId == null) {
     // 아이콘을 못 찾은 건지, 찾았는데 클릭이 주소를 안 만든 건지 구분이 안 되면 고칠 수가 없다.
     // 화면에서 '카드영수증'이 들어간 요소를 훑어 에러에 같이 담는다.
     const frames = await evaluateAllFrames(launcher, findCardReceipt).catch(() => []);
 
     await closeTab(launcher);
-    const e = new Error('카드영수증 앱이 안 열렸어요');
+    const e = new Error(`카드영수증 앱이 안 열렸어요 (${BUILD})`);
     const lines = [
+      `[Webwing ${BUILD}]`,
       iconFrame == null
         ? `'카드영수증' 앱 아이콘을 화면에서 찾지 못했어요.`
         : `'카드영수증' 아이콘을 눌렀지만 앱 주소를 잡지 못했어요.`,
       `현재 화면: ${beforeUrl}`,
       '로그인이 풀리지 않았는지, 카드영수증 앱이 화면에 보이는지 확인해주세요.',
       '',
-      `아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요. (빌드 ${BUILD})`,
+      '아래는 개발자에게 그대로 전달해주시면 고칠 수 있는 정보예요.',
       `아이콘 찾음: ${iconFrame == null ? '아니오' : '예'} · 클릭 후 새 프레임: ${inlineFrame ? inlineFrame.url.slice(0, 60) : '없음'}`,
+      actTried.length
+        ? `스크립트에서 찾은 주소 후보 ${actTried.length}개 (앞 6개를 열어 봤지만 미결의 목록이 없었어요):`
+        : '스크립트에서 .act 주소를 찾지 못했어요.',
+      ...actTried.slice(0, 8).map((u) => `  ${u.slice(0, 100)}`),
       `프레임 ${frames.length}개를 훑었습니다.`,
     ];
     for (const f of frames) {
