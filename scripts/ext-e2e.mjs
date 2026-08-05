@@ -95,6 +95,12 @@ const BZ_ROWS = [
 // 금액이 크고 택시도 식사 시간대도 아니라 양쪽 필터에서 모두 걸러진다.
 const BZ_FILLER = Array.from({ length: 28 }, (_, i) =>
   ['법인카드', `2026-06-${String((i % 28) + 1).padStart(2, '0')} 12:00`, '사무용품 구매', 50000]);
+// 대상월(2026-06) 밖의 행 — 화면 조회기간이 넓게 걸려 있으면 이런 게 섞여 온다.
+// 조건만 보면 후보로 잡히지만 달이 달라 빠져야 한다.
+const BZ_OTHER_MONTH = [
+  ['법인카드', '2026-07-02 01:10', '카카오T 택시', 19000],   // 심야 택시지만 7월
+  ['법인카드', '2026-07-03 19:20', '김밥천국', 7000],        // 저녁 식대지만 7월
+];
 
 // 실제 런처는 포털이라 앱 목록이 iframe 안에 있고, 최상위 문서에는 '카드영수증' 글자가
 // 아예 없다(실물 진단으로 확인). 아이콘 라벨도 이미지 alt에만 있는 경우를 함께 흉내낸다.
@@ -121,7 +127,7 @@ const bzApps = `<!doctype html><html lang="ko"><body style="font-family:sans-ser
 // 게다가 리스너는 isTrusted를 확인해서 합성 클릭으로는 절대 안 열린다 —
 // 이럴 때 스크립트에서 주소를 찾아 직접 여는 경로만이 답이다.
 const bzPortalJs = `
-  var SCREENS = { '카드 영수증': 'https://webank.appplay.co.kr/eusr_9001_01.act', '경비청구': '/expense_0001.act' };
+  var SCREENS = { '카드 영수증': 'https://webank.appplay.co.kr/rcard_main.act', '경비청구': '/expense_0001.act' };
   document.querySelectorAll('.s3-sme-item').forEach(function (el) {
     el.addEventListener('click', function (ev) {
       if (!ev.isTrusted) return;                 // 합성 이벤트는 무시
@@ -139,14 +145,16 @@ const bzFrame = `<!doctype html><html lang="ko"><body style="font-family:sans-se
   <input id="START_DT"><input id="SHOW_START_DT"><input id="BASE_START_DT">
   <input id="END_DT"><input id="SHOW_END_DT"><input id="BASE_END_DT">
 </div>
-<div><span id="tab-wait" style="cursor:pointer">대기 (${BZ_ROWS.length + BZ_FILLER.length})</span> <span>완료 (0)</span></div>
+<!-- 실물 그대로: 조회기간이 대상월 밖까지 걸려 있고, 표에는 id가 없다. -->
+<div>조회기간 2026-06-01 ~ 2026-07-31</div>
+<div>결의상태 전체(${BZ_ROWS.length + BZ_FILLER.length + 2}) | <span id="tab-wait" style="cursor:pointer">대기(${BZ_ROWS.length + BZ_FILLER.length})</span> | 진행(2) | 완료(0)</div>
 <div id="paging_size"><span class="btn_combo_down">▾</span><ul><li><a href="#">100</a></li><li><a href="#">200</a></li></ul></div>
-<table><tbody id="tableList"></tbody></table>
+<table><tbody id="rows"></tbody></table>
 <script>
-  var ROWS = ${JSON.stringify([...BZ_ROWS, ...BZ_FILLER])};
+  var ROWS = ${JSON.stringify([...BZ_ROWS, ...BZ_OTHER_MONTH, ...BZ_FILLER])};
   // 실제 화면처럼 '대기' 탭을 눌러야 목록이 채워진다.
   document.getElementById('tab-wait').addEventListener('click', function () {
-    document.getElementById('tableList').innerHTML = ROWS.map(function (r, i) {
+    document.getElementById('rows').innerHTML = ROWS.map(function (r, i) {
       var amt = r[3].toLocaleString('en-US');
       return '<tr><td><input type="checkbox"></td><td>' + (i + 1) + '</td><td>' + r[0] + '</td><td>' + r[1] +
              '</td><td>' + r[2] + '</td><td>승인</td><td>-</td><td>' + amt + '</td></tr>';
@@ -180,7 +188,7 @@ const server = createServer(
 
     // 카드영수증 앱은 회사별 하위 도메인(appplay.co.kr)에서 돈다 — 실물이 그랬다.
     if ((req.headers.host || '').includes('appplay')) {
-      if (path === '/eusr_9001_01.act') return res.end(bzFrame);
+      if (path === '/rcard_main.act') return res.end(bzFrame);
       return res.end('<!doctype html><body>appplay</body>');
     }
 
@@ -462,7 +470,7 @@ const savedAppUrl = await page.evaluate(() => new Promise((r) => {
 }));
 console.log('\n── 기억한 카드영수증 앱 주소 ──');
 console.log('  ' + (savedAppUrl || '(없음)'));
-checks.push(['앱 주소 기억(다른 도메인)', /webank\.appplay\.co\.kr\/eusr_9001_01/.test(savedAppUrl)]);
+checks.push(['앱 주소 기억(다른 도메인)', /webank\.appplay\.co\.kr\/rcard_main/.test(savedAppUrl)]);
 
 // 기억한 주소로 다시 돌리면 클릭 경로를 아예 건너뛰고 열려야 한다.
 const again = await runExpense('yagun');

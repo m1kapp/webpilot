@@ -12,7 +12,7 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-07-31g';
+const BUILD = '2026-08-05a';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -126,9 +126,18 @@ export async function captureCardAppUrl({ timeoutMs = 180000, pollMs = 1500 } = 
 }
 
 // 그 프레임이 미결의 목록 화면이 맞는지 — 이름 대신 내용으로 확인한다.
+// 실물 화면은 표에 id가 없을 수도 있다. 그래서 내용으로 판별한다 —
+// '결의상태 … 대기(91)' 같은 글자, 또는 날짜와 금액이 든 8칸 이상짜리 표.
+function looksLikeReceiptList() {
+  const t = document.body ? document.body.innerText || '' : '';
+  if (/대기\s*\(\d+\)/.test(t) || /결의상태/.test(t)) return true;
+  return [...document.querySelectorAll('table tr')].some((tr) => {
+    const tds = tr.querySelectorAll('td');
+    return tds.length >= 8 && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || '');
+  });
+}
 const hasPendingTable = (tabId, frameId) =>
-  evaluate(tabId, () => !!document.querySelector('#tableList') || /대기\s*\(\d+\)/.test(document.body?.innerText || ''),
-    undefined, { frameId }).catch(() => false);
+  evaluate(tabId, looksLikeReceiptList, undefined, { frameId }).catch(() => false);
 
 // 런처 → 카드영수증 앱(새 탭 또는 같은 페이지 iframe) → 데이터 프레임.
 // 대상월로 날짜범위까지 세팅한 frame 참조 반환.
@@ -382,7 +391,8 @@ async function loadPendingRows(appTab, frameId) {
   // 페이지 크기 200 (30행 넘을 때까지 재시도)
   for (let i = 0; i < 5; i++) {
     const n = await evaluateFrame(appTab, frameId, () =>
-      [...document.querySelectorAll('#tableList tr')].filter((tr) => /\d{4}-\d{2}-\d{2}/.test(tr.innerText)).length);
+      [...document.querySelectorAll('tr')].filter((tr) => tr.querySelectorAll('td').length >= 8
+        && /\d{4}-\d{2}-\d{2}/.test(tr.innerText || '')).length);
     if (n > 30) break;
     await evaluateFrame(appTab, frameId, () => { document.querySelector('#paging_size .btn_combo_down')?.click(); });
     await sleep(400);
@@ -393,13 +403,12 @@ async function loadPendingRows(appTab, frameId) {
     });
     await sleep(2500);
   }
-  // 행 스크래핑
-  return evaluateFrame(appTab, frameId, () => {
-    const t = document.querySelector('#tableList'); if (!t) return [];
-    return [...t.querySelectorAll('tr')]
+  // 행 스크래핑 — #tableList가 없는 화면도 있어서 문서 전체의 tr에서 조건으로 고른다.
+  // 컬럼: td[2]종류 td[3]사용일시 td[4]사용처 td[7]사용금액 (실물 화면에서 확인)
+  return evaluateFrame(appTab, frameId, () =>
+    [...document.querySelectorAll('tr')]
       .map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.trim().replace(/\s+/g, ' ')))
-      .filter((td) => td.length >= 8 && /\d{4}-\d{2}-\d{2}/.test(td.join(' ')));
-  });
+      .filter((td) => td.length >= 8 && /\d{4}-\d{2}-\d{2}/.test(td.join(' '))));
 }
 
 // 여러 달의 타임인아웃 근태를 모아 date→day 레코드 map
@@ -437,11 +446,16 @@ export async function getYagunTaxi(month, onProgress = () => {}) {
       '긁은 행': `${rows.length}건`,
       예시: rows.slice(0, 3).map((td) => `${td[3]} · ${td[4]} · ${td[7]}`),
     });
-    const taxis = rows.map(toItem).filter((it) => /택시/.test(it.merchant) && isNight(it.date) && it.amount > 0);
+    // 화면의 조회기간이 대상월과 다를 수 있다(실물은 7/1~8/5가 걸려 있었다).
+    // 날짜 UI를 못 건드려도 결과가 어긋나지 않게 여기서 대상월로 자른다.
+    // 심야 택시는 자정을 넘기면 전날 야근이므로 '야근일' 기준으로 판단한다.
+    const inMonth = rows.map(toItem).filter((it) => yagunDateOf(it.date).slice(0, 7) === month);
+    const taxis = inMonth.filter((it) => /택시/.test(it.merchant) && isNight(it.date) && it.amount > 0);
     onProgress('미결의(대기) 조회 중', {
       '심야 택시 후보': `${taxis.length}건`,
       기준: '사용처에 택시 + 23~03시 결제',
-      '걸러진 건': `${rows.length - taxis.length}건 (택시 아님·주간 결제)`,
+      '걸러진 건': `${rows.length - taxis.length}건 (다른 달·택시 아님·주간 결제)`,
+      '대상월 밖': `${rows.length - inMonth.length}건`,
     });
 
     const timeMap = taxis.length
@@ -482,11 +496,14 @@ export async function getYasik(month, onProgress = () => {}) {
       '긁은 행': `${rows.length}건`,
       예시: rows.slice(0, 3).map((td) => `${td[3]} · ${td[4]} · ${td[7]}`),
     });
-    const meals = rows.map(toItem).filter((it) => it.amount > 0 && it.amount <= 13000 && !/택시/.test(it.merchant) && isYasikMeal(it.date));
+    // 화면 조회기간이 대상월과 달라도 결과가 어긋나지 않게 여기서 자른다.
+    const inMonth = rows.map(toItem).filter((it) => it.date.slice(0, 7) === month);
+    const meals = inMonth.filter((it) => it.amount > 0 && it.amount <= 13000 && !/택시/.test(it.merchant) && isYasikMeal(it.date));
     onProgress('미결의(대기) 조회 중', {
       '식대 후보': `${meals.length}건`,
       기준: '13,000원 이하 + 저녁(17~22시) 또는 조식(05~09시) + 택시 아님',
-      '걸러진 건': `${rows.length - meals.length}건 (금액 초과·시간대 밖)`,
+      '걸러진 건': `${rows.length - meals.length}건 (다른 달·금액 초과·시간대 밖)`,
+      '대상월 밖': `${rows.length - inMonth.length}건`,
     });
 
     const timeMap = meals.length
