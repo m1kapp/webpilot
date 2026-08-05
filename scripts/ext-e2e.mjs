@@ -289,12 +289,41 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + 
 
 await page.goto(`chrome-extension://${extId}/page/index.html`);
 
+async function launchAutomation(id, month = '2026-06') {
+  await page.click(`.auto[data-id="${id}"]`);
+  if (await page.isVisible('#month-dialog')) {
+    await page.$eval('#month-dialog-input', (el, value) => { el.value = value; }, month);
+    await page.click('#month-dialog-go');
+  }
+}
+
 // 홈: 자동화 목록이 떠야 함
 await page.waitForSelector('#view-home:not([hidden]) .auto', { timeout: 15000 });
 const homeItems = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => ({
   label: e.querySelector('.lb').textContent, ready: !e.disabled })));
 console.log('── 홈: 자동화 목록 ──');
 for (const it of homeItems) console.log(`  ${it.ready ? '●' : '○'} ${it.label}${it.ready ? '' : ' (준비 중)'}`);
+
+// 제목·설명 아래 서비스 로고+이름 칩. 큰 왼쪽 아이콘 대신 정보 계층 안에 작게 둔다.
+const homeChips = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => ({
+  label: e.querySelector('.lb').textContent.trim(),
+  chips: [...e.querySelectorAll('.svc-chip')].map((c) => ({ text: c.textContent.trim(), icon: c.querySelector('img')?.getBoundingClientRect().width || 0 })),
+  below: e.querySelector('.svc-chips').getBoundingClientRect().top >= e.querySelector('.sb').getBoundingClientRect().bottom - 1,
+})));
+const serviceChipOk = homeChips.every((c) => c.chips.length > 0 && c.below && c.chips.every((x) => x.icon > 0 && x.icon <= 20))
+  && homeChips.find((c) => c.label === '출퇴근 정정')?.chips.map((x) => x.text).join('·') === '타임인아웃·Flow';
+console.log('  서비스 칩:', serviceChipOk ? '✓' : '✗');
+
+// 사용자가 지정한 세 자동화만 실행 전에 월 선택 다이얼로그를 연다.
+const monthDialogIds = ['overtime', 'correction', 'yagun'];
+const monthDialogs = [];
+for (const id of monthDialogIds) {
+  await page.click(`.auto[data-id="${id}"]`);
+  monthDialogs.push({ id, visible: await page.isVisible('#month-dialog'), title: await page.$eval('#month-dialog-title', (e) => e.textContent) });
+  await page.click('#month-dialog-cancel');
+}
+const monthDialogOk = monthDialogs.every((x) => x.visible && /기간 선택/.test(x.title));
+console.log('  월 선택 다이얼로그 3개:', monthDialogOk ? '✓' : '✗');
 
 // '내 연차 현황' 실행 (로그아웃 상태이므로 먼저 로그인 필요가 떠야 함)
 await page.click('.auto[data-id="leave-personal"]');
@@ -355,7 +384,7 @@ await page.screenshot({ path: '/tmp/ext-shot.png', fullPage: true });
 await page.click('#back');
 await page.waitForSelector('#view-home:not([hidden])');
 await page.$eval('#month', (el) => { el.value = '2026-06'; }); // 근태 카드가 6월 기준
-await page.click('.auto[data-id="overtime"]');
+await launchAutomation('overtime', '2026-06');
 await page.waitForSelector('#view-result:not([hidden]) #ot-rows', { timeout: 30000 })
   .catch(async () => { throw new Error('초과근무 결과 실패 — 오류창: ' + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
 await page.waitForTimeout(300);
@@ -396,7 +425,7 @@ await page.waitForSelector('#view-home:not([hidden])');
 
 // ── 출퇴근 정정: Flow 키 없음 → 키 프롬프트 → 저장 → 결과 ──
 await page.$eval('#month', (el) => { el.value = '2026-06'; });
-await page.click('.auto[data-id="correction"]');
+await launchAutomation('correction', '2026-06');
 await page.waitForSelector('#flow-key-input', { timeout: 30000 })
   .catch(async () => { throw new Error('Flow 키 프롬프트 안 뜸 — 오류창: ' + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
 const flowPrompt = true;
@@ -496,7 +525,7 @@ async function runExpense(id, month = '2026-06') {
   await page.goto(`chrome-extension://${extId}/page/index.html`);
   await page.waitForSelector(`.auto[data-id="${id}"]`);
   await page.$eval('#month', (el) => { el.value = '2026-06'; });
-  await page.click(`.auto[data-id="${id}"]`);
+  await launchAutomation(id, month);
   await page.waitForSelector('#view-result:not([hidden])', { timeout: 90000 })
     .catch(async () => { throw new Error(`${id} 실패 — 오류창: ` + await page.$eval('#run-err', (e) => e.innerText).catch(() => '?')); });
   await page.waitForTimeout(300);
@@ -519,7 +548,7 @@ const taxiSubmitOk = expenseSubmitRequests === 1 && expenseUploadRequests === 1;
 await page.goto(`chrome-extension://${extId}/page/index.html`);
 await page.waitForSelector('.auto');
 await page.$eval('#month', (el) => { el.value = '2026-06'; });
-await page.click('.auto[data-id="yagun"]');
+await launchAutomation('yagun', '2026-06');
 await page.waitForFunction(() => {
   const b = document.getElementById('run-live');
   return b && !b.hidden && b.children.length > 0;
@@ -628,6 +657,7 @@ const shownVer = await page.$eval('#app-ver', (e) => e.textContent.trim()).catch
 console.log('\n── 상단바 버전 ──');
 console.log('  ' + (shownVer || '(없음)'));
 checks.push(['상단바에 버전 표시', /^v\d+\.\d+\.\d+/.test(shownVer)]);
+checks.push(['홈 카드에 서비스 로고·이름 칩', serviceChipOk], ['지정한 3개 자동화에 월 선택 다이얼로그', monthDialogOk]);
 
 // 자동화 카드의 이름과 설명이 각자 줄을 갖는지. span에 display를 안 주면 한 줄로 붙어 흐른다.
 const cardLines = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => {
@@ -641,7 +671,7 @@ checks.push(['카드 이름·설명이 두 줄로', cardLines.every((c) => c.sta
 
 // 늦게 끝난 실행이 지금 보고 있는 화면을 덮으면 안 된다.
 // 야근택시를 띄워 두고 목록으로 나간 뒤, 그 실행이 끝나도 홈이 그대로여야 한다.
-await page.click('.auto[data-id="yagun"]');
+await launchAutomation('yagun', '2026-06');
 await page.waitForSelector('#view-run:not([hidden])');
 await page.click('#back');
 await page.waitForSelector('#view-home:not([hidden])');
@@ -660,7 +690,7 @@ for (const id of ['leave-personal', 'overtime', 'correction', 'yagun', 'yasik'])
   await page.goto(`chrome-extension://${extId}/page/index.html`);                         // 직전 실행을 끊고 홈에서 다시 시작
   await page.waitForSelector(`.auto[data-id="${id}"]`);
   const label = await page.$eval(`.auto[data-id="${id}"] .lb`, (e) => e.textContent.trim());
-  await page.click(`.auto[data-id="${id}"]`);
+  await launchAutomation(id, '2026-06');
   await page.waitForFunction(() => !document.getElementById('view-run').hidden, { timeout: 8000 }).catch(() => {});
   const shown = await page.$eval('#brand-name', (e) => e.textContent.trim());
   const oneLine = await page.$eval('#topbar', (bar) => {

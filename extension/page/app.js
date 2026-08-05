@@ -24,19 +24,19 @@ const AUTOMATIONS = [
   },
   {
     id: 'overtime', label: '초과근무 분석', sub: '찐 출퇴근으로 초과근무 집계',
-    ready: true, msg: 'overtime', hasMonth: true, services: ['timeinout'],
+    ready: true, msg: 'overtime', hasMonth: true, askMonth: true, services: ['timeinout'],
     steps: ['타임인아웃 여는 중', '근태 카드 조회', '경계일 보정', '휴가·출장 반영', '초과근무 계산'],
     render: renderOvertime,
   },
   {
     id: 'correction', label: '출퇴근 정정', sub: '누락일 Flow 대조 → 출퇴근 제안',
-    ready: true, msg: 'correction', hasMonth: true, services: ['timeinout', 'flow'],
+    ready: true, msg: 'correction', hasMonth: true, askMonth: true, services: ['timeinout', 'flow'],
     steps: ['타임인아웃 여는 중', '근태 카드 조회', '누락일 추리는 중', 'Flow 활동 대조'],
     render: renderCorrection,
   },
   {
     id: 'yagun', label: '야근택시 조회', sub: '심야 택시 → 근태로 증빙 판정',
-    ready: true, msg: 'yagun', hasMonth: true, services: ['bizplay', 'timeinout'],
+    ready: true, msg: 'yagun', hasMonth: true, askMonth: true, services: ['bizplay', 'timeinout'],
     steps: ['비즈플레이 여는 중', '카드영수증 앱 여는 중', '미결의 조회', '타임인아웃 근태 매칭'],
     render: (d) => renderExpense(d, 'yagun'),
   },
@@ -50,9 +50,13 @@ const AUTOMATIONS = [
 
 // 서비스 로고 — 자동화 아이콘은 이모지 대신 관련 서비스 로고 배지(데스크톱과 동일). 파란 점=타임인아웃/Webwing.
 const SVC_ICON = { timeinout: '../icons/svc-timeinout.png', bizplay: '../icons/svc-bizplay.png', flow: '../icons/svc-flow.png' };
+const SVC_LABEL = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow' };
 // 자동화 아이콘 HTML: 관련 서비스 로고를 '+'로 이어 붙인다.
 const autoIcon = (a) => (a.services || []).map((s, i) =>
   `${i ? '<span class="plus">+</span>' : ''}<img src="${SVC_ICON[s]}" alt="">`).join('');
+// 홈 카드에서는 서비스 로고를 제목 아래의 작은 흰색 칩으로 보여준다.
+const serviceChips = (a) => `<span class="svc-chips">${(a.services || []).map((s) =>
+  `<span class="svc-chip"><img src="${SVC_ICON[s]}" alt=""><span>${esc(SVC_LABEL[s] || s)}</span></span>`).join('')}</span>`;
 
 // 호스트 → 서비스. 지금 탭이 어느 서비스인지 판별해 관련 자동화를 위로 올린다.
 const SERVICE_OF_HOST = (host) => {
@@ -76,8 +80,7 @@ function renderHome() {
 
   const card = (a) => `
     <button class="auto" data-id="${a.id}" ${a.ready ? '' : 'disabled'}>
-      <span class="ic">${autoIcon(a)}</span>
-      <span class="tx"><span class="lb">${esc(a.label)}</span><span class="sb">${esc(a.sub)}</span></span>
+      <span class="tx"><span class="lb">${esc(a.label)}</span><span class="sb">${esc(a.sub)}</span>${serviceChips(a)}</span>
       ${a.ready ? '<span class="chev">›</span>' : '<span class="badge">준비 중</span>'}
     </button>`;
 
@@ -92,9 +95,33 @@ function renderHome() {
   }
   $('auto-list-wrap').innerHTML = html;
   $('auto-list-wrap').querySelectorAll('.auto[data-id]').forEach((btn) => {
-    btn.addEventListener('click', () => start(AUTOMATIONS.find((a) => a.id === btn.dataset.id)));
+    btn.addEventListener('click', () => {
+      const auto = AUTOMATIONS.find((a) => a.id === btn.dataset.id);
+      if (auto.askMonth) openMonthDialog(auto); else start(auto);
+    });
   });
 }
+
+// 월 단위 자동화 중 사용자가 지정한 세 기능은 실행 전에 월을 명시적으로 고른다.
+let monthDialogAuto = null;
+function openMonthDialog(auto) {
+  monthDialogAuto = auto;
+  $('month-dialog-title').textContent = `${auto.label} 기간 선택`;
+  $('month-dialog-desc').textContent = '조회할 월을 선택해주세요.';
+  $('month-dialog-input').value = $('month').value;
+  $('month-dialog').hidden = false;
+  setTimeout(() => $('month-dialog-input').focus(), 30);
+}
+function closeMonthDialog() { $('month-dialog').hidden = true; monthDialogAuto = null; }
+$('month-dialog-cancel').addEventListener('click', closeMonthDialog);
+$('month-dialog-go').addEventListener('click', () => {
+  const auto = monthDialogAuto, value = $('month-dialog-input').value;
+  if (!auto || !/^\d{4}-\d{2}$/.test(value)) return;
+  $('month').value = value;
+  closeMonthDialog();
+  start(auto);
+});
+$('month-dialog').addEventListener('click', (e) => { if (e.target === $('month-dialog')) closeMonthDialog(); });
 
 // 지금 활성 탭의 서비스를 읽어 홈이 열려 있으면 재정렬
 async function refreshContext() {

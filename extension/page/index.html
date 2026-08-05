@@ -54,15 +54,17 @@
     box-shadow:0 6px 18px -14px rgba(60,58,140,.25); transition:.14s; }
   .auto:hover:not(:disabled) { transform:translateY(-1px); border-color:#cdd6ea; box-shadow:0 10px 22px -14px rgba(60,58,140,.4); }
   .auto:disabled { opacity:.62; cursor:default; }
-  .auto .ic { flex:none; display:flex; align-items:center; justify-content:center; gap:3px; }
-  .auto .ic img { width:34px; height:34px; border-radius:9px; object-fit:contain; }
-  .auto .ic .plus { color:#aab1c2; font-size:12px; font-weight:800; }
   .auto .tx { min-width:0; flex:1; }
   /* span이라 display를 안 주면 이름과 설명이 한 줄로 흘러 붙는다.
      .sb의 말줄임(overflow/ellipsis)도 블록이어야 먹는다. */
   .auto .lb { display:block; font-size:14px; font-weight:700; letter-spacing:-.2px; }
   .auto .sb { display:block; font-size:12px; color:var(--muted); margin-top:1px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .svc-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .svc-chip { display:inline-flex; align-items:center; gap:6px; min-height:27px; padding:4px 9px 4px 6px;
+    background:#fff; border:1px solid #e2e6f0; border-radius:999px; color:#667085; font-size:10.5px;
+    font-weight:700; line-height:1; box-shadow:0 3px 9px -7px rgba(40,52,90,.55); }
+  .svc-chip img { width:18px; height:18px; border-radius:5px; object-fit:contain; }
   .auto .badge { flex:none; font-size:10.5px; font-weight:700; color:#a2704a; background:#faf0e6;
     border-radius:999px; padding:3px 8px; }
   .auto .chev { flex:none; color:#c1c8d6; font-size:16px; }
@@ -135,6 +137,17 @@
   .write-confirm textarea { width:100%; min-height:58px; resize:vertical; padding:8px 10px; margin-bottom:9px;
     border:1px solid #d9dcec; border-radius:9px; font:inherit; font-size:12px; color:var(--ink); }
   .write-buttons { display:flex; flex-wrap:wrap; gap:8px; }
+
+  /* 실행 전 월 선택 — 결과 상단의 작은 month input보다 먼저, 의도를 분명히 확인한다. */
+  .month-dialog { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    padding:22px; background:rgba(29,37,55,.34); backdrop-filter:blur(2px); }
+  .month-dialog-box { width:min(340px,100%); padding:20px; background:#fff; border:1px solid #e1e5ef;
+    border-radius:17px; box-shadow:0 22px 55px -24px rgba(20,28,48,.5); }
+  .month-dialog-box h2 { margin:0 0 4px; font-size:16px; letter-spacing:-.2px; }
+  .month-dialog-box p { margin:0 0 14px; color:var(--muted); font-size:12px; }
+  .month-dialog-box input[type=month] { width:100%; padding:10px 12px; border:1px solid #d6dbea;
+    border-radius:10px; background:#fff; color:var(--ink); font:inherit; font-size:14px; }
+  .month-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:15px; }
 
   /* 무엇이 어느 합계에서 빠졌는지 설명 */
   .ot-excl-note { font-size:11.5px; color:var(--muted); margin:6px 0 0; line-height:1.65; }
@@ -278,7 +291,7 @@
     .card { padding:15px 14px; }
     .kpi .v { font-size:21px; }         /* 2열이므로 살짝 축소 */
     .auto { padding:15px 14px; }        /* 손가락 탭 영역 */
-    .auto .ic { width:40px; height:40px; }
+    .svc-chip { min-height:29px; }
     .run-actions { flex-wrap:wrap; }
     .btn { flex:1; min-width:120px; text-align:center; } /* 버튼 손가락 크기 */
     /* 결과 상단 연도 셀렉트가 좁으면 다음 줄로 */
@@ -331,6 +344,17 @@
 
     <!-- 결과 -->
     <div id="view-result" hidden></div>
+  </div>
+</div>
+<div class="month-dialog" id="month-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="month-dialog-title">
+  <div class="month-dialog-box">
+    <h2 id="month-dialog-title">기간 선택</h2>
+    <p id="month-dialog-desc">조회할 월을 선택해주세요.</p>
+    <input type="month" id="month-dialog-input" />
+    <div class="month-dialog-actions">
+      <button class="btn btn-ghost" id="month-dialog-cancel">취소</button>
+      <button class="btn btn-primary" id="month-dialog-go">이 월로 조회</button>
+    </div>
   </div>
 </div>
 <script type="module" src="app.js"></script>
