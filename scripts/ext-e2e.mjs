@@ -449,6 +449,21 @@ async function runExpense(id, month = '2026-06') {
 
 console.log('\n── 야근택시 조회 ──');
 const yagun = await runExpense('yagun');
+// 실행 중 "무엇을 시도했는지"가 실시간으로 쌓였는지 — 오래 걸리는 단계에서 멈춘 건지
+// 도는 건지 사용자가 구분할 수 있어야 한다. (결과로 넘어가면 사라지므로 다시 한 번 관찰)
+await page.goto(`chrome-extension://${extId}/page/index.html`);
+await page.waitForSelector('.auto');
+await page.$eval('#month', (el) => { el.value = '2026-06'; });
+await page.click('.auto[data-id="yagun"]');
+await page.waitForFunction(() => {
+  const b = document.getElementById('run-live');
+  return b && !b.hidden && b.children.length > 0;
+}, { timeout: 20000 }).catch(() => {});
+const liveLines = await page.$$eval('#run-live div', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+console.log('\n── 실행 중 시도 로그 ──');
+for (const l of liveLines.slice(0, 6)) console.log('  ' + l);
+checks.push(['실행 중 시도 로그 표시', liveLines.length > 0]);
+await page.waitForSelector('#view-result:not([hidden])', { timeout: 90000 }).catch(() => {});
 console.log('요약:', yagun.kpis);
 for (const r of yagun.rows) console.log('  ', r);
 // 택시 4건 중 심야 3건만 후보. 그중 06-02(초과 있음)·06-13(휴일근무) 2건이 증빙 O.
@@ -523,9 +538,9 @@ await appTab.close();
 await page.goto(`chrome-extension://${extId}/page/index.html`);
 await page.waitForSelector('.auto');
 const shownVer = await page.$eval('#app-ver', (e) => e.textContent.trim()).catch(() => '');
-console.log('\n── 푸터 버전 ──');
+console.log('\n── 상단바 버전 ──');
 console.log('  ' + (shownVer || '(없음)'));
-checks.push(['홈 푸터에 버전 표시', /^Webwing \d+\.\d+\.\d+/.test(shownVer)]);
+checks.push(['상단바에 버전 표시', /^v\d+\.\d+\.\d+/.test(shownVer)]);
 
 // 자동화 카드의 이름과 설명이 각자 줄을 갖는지. span에 display를 안 주면 한 줄로 붙어 흐른다.
 const cardLines = await page.$$eval('#auto-list-wrap .auto', (els) => els.map((e) => {

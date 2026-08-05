@@ -12,7 +12,8 @@ const HOST = 'https://www.bizplay.co.kr';
 // 예: https://webank.appplay.co.kr/eusr_9001_01.act — 그래서 매니페스트에 둘 다 들어 있다.
 const APP_TAB_PATTERNS = ['https://www.bizplay.co.kr/*', 'https://*.appplay.co.kr/*'];
 // 진단에 찍어서 "확장을 새로고침했는지"를 바로 가린다. 수집 로직을 고칠 때 같이 올린다.
-const BUILD = '2026-08-05b';
+const BUILD = '2026-08-05c';
+const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
@@ -133,6 +134,7 @@ async function openCardApp(month, onProgress) {
   // 0순위: 지난번에 사람이 열어 준 주소. 아직 유효하면 클릭을 아예 건너뛴다.
   const saved = await getCardAppUrl();
   if (saved) {
+    onProgress(STEP, { try: `기억해 둔 주소로 열기: ${saved.replace(/^https?:\/\//, '').slice(0, 50)}` });
     const t = await openTab(saved).catch(() => null);
     if (t != null) {
       const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
@@ -141,6 +143,7 @@ async function openCardApp(month, onProgress) {
         onProgress('카드영수증 앱 여는 중', { '앱 주소': saved, '연 방법': '기억해 둔 주소' });
         return finishCardApp(t, fid, month);
       }
+      onProgress(STEP, { try: '기억해 둔 주소', result: '미결의 목록이 아님(만료된 듯)' });
       await closeTab(t);
     }
   }
@@ -154,11 +157,17 @@ async function openCardApp(month, onProgress) {
   // 늦게 그려지기도 해서 몇 번 다시 본다.
   let iconFrame = null;
   for (let i = 0; i < 6 && iconFrame == null; i++) {
+    onProgress(STEP, { try: `'카드영수증' 아이콘 찾는 중 (${i + 1}/6)` });
     const hits = await evaluateAllFrames(launcher, findCardReceipt);
     const hit = hits.find((h) => h.result?.count > 0);
-    if (hit) { iconFrame = hit.frameId; break; }
+    if (hit) {
+      iconFrame = hit.frameId;
+      onProgress(STEP, { try: `아이콘 찾기 (프레임 ${hits.length}개)`, result: `${hit.result.count}개 일치` });
+      break;
+    }
     await sleep(1000);
   }
+  if (iconFrame == null) onProgress(STEP, { try: '아이콘 찾기', result: '못 찾음' });
 
   // ⚠ 반드시 메인 월드에서. 기본 격리 월드에서 window.open을 덮어써 봐야 페이지의
   //    onclick이 부르는 건 페이지 쪽 window.open이라 가로채지지 않는다.
@@ -202,6 +211,8 @@ async function openCardApp(month, onProgress) {
     setTimeout(() => finish(null), 3000); // window.open 안 쓰면 null (아래에서 같은탭 이동/새탭 폴백)
   }), undefined, { world: 'MAIN', frameId: iconFrame });
 
+  onProgress(STEP, { try: '타일 클릭(포인터 이벤트 전체)', result: openedUrl ? `window.open 가로챔: ${openedUrl.slice(0, 50)}` : '아무 주소도 안 나옴' });
+
   let appTabId = null;
   let inlineFrame = null;   // 앱이 런처 페이지 안 iframe에 뜬 경우 그 프레임
   if (openedUrl) {
@@ -211,12 +222,14 @@ async function openCardApp(month, onProgress) {
     // 폴백0: 앱이 같은 페이지의 iframe에 뜨는 구조. 새 탭도 window.open도 아니라
     // 주소만 봐서는 아무 일도 안 일어난 것처럼 보인다. 프레임이 새로 채워졌는지로 가린다.
     for (let i = 0; i < 12 && inlineFrame == null; i++) {
+      if (i % 4 === 0) onProgress(STEP, { try: `같은 페이지에 앱 프레임이 뜨는지 (${i + 1}/12)` });
       await sleep(800);
       const now = await listFrames(launcher);
       const fresh = now.find((f) => f.url && !/^about:/.test(f.url)
         && !framesBefore.includes(`${f.frameId}|${f.url}`) && f.frameId !== 0);
       if (fresh) inlineFrame = fresh;
     }
+    onProgress(STEP, { try: '같은 페이지 iframe', result: inlineFrame ? inlineFrame.url.slice(0, 50) : '안 뜸' });
     if (inlineFrame) appTabId = launcher;
 
     // 폴백1: 클릭이 같은 탭을 앱으로 이동시켰는지
@@ -247,14 +260,18 @@ async function openCardApp(month, onProgress) {
   let actTried = [];
   if (appTabId == null) {
     // 스크립트도 아이콘과 같은 프레임(포털 iframe) 안에 있다 — 모든 프레임에서 긁어 합친다.
+    onProgress(STEP, { try: '페이지 스크립트에서 앱 주소 찾는 중' });
     const perFrame = await evaluateAllFrames(launcher, scrapeActUrls).catch(() => []);
     actTried = [...new Set(perFrame.flatMap((f) => f.result || []))];
+    onProgress(STEP, { try: '스크립트에서 주소 긁기', result: `후보 ${actTried.length}개` });
     for (const url of actTried.slice(0, 6)) {
+      onProgress(STEP, { try: `후보 열어보기: ${url.replace(/^https?:\/\//, '').slice(0, 45)}` });
       const t = await openTab(url).catch(() => null);
       if (t == null) continue;
       const fid = await findFrame(t, 'eusr_9001', { tries: 3, gap: 500 });
       const ok = fid != null ? await hasPendingTable(t, fid) : await hasPendingTable(t, 0);
       if (ok) { appTabId = t; if (fid != null) inlineFrame = { frameId: fid, url }; break; }
+      onProgress(STEP, { try: '후보 확인', result: '미결의 목록 아님' });
       await closeTab(t);
     }
   }

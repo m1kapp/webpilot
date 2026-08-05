@@ -146,6 +146,8 @@ async function start(auto) {
   $('run-sb').textContent = auto.hasYear ? `${$('year').value}년` : auto.hasMonth ? monthLabel($('month').value) : '';
   $('run-err').hidden = true;
   $('run-actions').hidden = true;
+  $('run-live').hidden = true;
+  $('run-live').innerHTML = '';
   show('run');
   await execute(auto);
 }
@@ -316,6 +318,19 @@ async function loginThenRetry(needsLogin) {
   $('run-actions').hidden = false;
 }
 
+// 실행 중 "무엇을 시도하고 어떻게 됐는지"를 한 줄씩 쌓는다.
+// 오래 걸리는 단계(앱 열기 등)에서 멈춘 건지 계속 도는 건지 눈으로 구분되게.
+function liveLog(what, result) {
+  const box = $('run-live');
+  if (!box) return;
+  box.hidden = false;
+  const row = document.createElement('div');
+  const cls = result == null ? '' : /못|실패|없음|아님/.test(String(result)) ? 'no' : 'ok';
+  row.innerHTML = `<b>${esc(what)}</b>${result ? ` <span class="${cls}">→ ${esc(result)}</span>` : ' …'}`;
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+}
+
 // ── 단계 로그 ──
 let stepEls = [];
 function buildSteps(auto) {
@@ -393,7 +408,10 @@ function failCurrentStep(message, needsLogin, detail, needsAppUrl) {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type !== 'progress' || !current) return;
   advanceTo(msg.text || '');
-  if (msg.evidence) trace.push({ step: msg.text || '', at: Date.now(), data: msg.evidence });
+  if (msg.evidence) {
+    trace.push({ step: msg.text || '', at: Date.now(), data: msg.evidence });
+    if (msg.evidence.try) liveLog(msg.evidence.try, msg.evidence.result);   // 진행 중 한 줄짜리 시도 기록
+  }
 });
 
 // 버전 표시 — 사용자가 화면을 캡처해 보낼 때 어느 빌드인지 바로 드러나야 한다.
@@ -401,7 +419,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 {
   const mf = chrome.runtime.getManifest();
   const el = $('app-ver');
-  if (el) el.textContent = `Webwing ${mf.version_name || mf.version}`;
+  if (el) el.textContent = `v${mf.version_name || mf.version}`;
 }
 
 // ── 상단바 · 연도 ──
