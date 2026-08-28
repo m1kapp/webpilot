@@ -48,7 +48,7 @@ const AUTOMATIONS = [
   },
   {
     id: 'edu', label: '법정의무교육', sub: '진도 관제 · 끝난 편은 다음 편으로',
-    ready: true, msg: 'edu', services: ['ehrd'],
+    ready: true, gated: true, msg: 'edu', services: ['ehrd'],
     steps: ['사이버연수원 여는 중', '로그인 확인', '수강 목록 읽는 중', '과정별 분량 계산'],
     render: renderEdu,
   },
@@ -74,14 +74,20 @@ const SERVICE_OF_HOST = (host) => {
 };
 const SERVICE_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow', ehrd: '사이버연수원' };
 let currentService = null; // 지금 보고 있는 사이트의 서비스
+// ── 숨김 기능(법정의무교육) 잠금 ──
+// 기본은 숨김. 배지를 여러 번 탭해 코드를 입력하면 이 기기에서만 열린다. 코드는 여기 한 줄만 바꾸면 된다.
+const EDU_UNLOCK_CODE = 'wingedu';
+let eduUnlocked = false;
+const visibleAutomations = () => AUTOMATIONS.filter((a) => !a.gated || eduUnlocked);
 
 let current = null; // 실행 중인 자동화
 
 // ── 홈 렌더 ── 지금 보고 있는 사이트에 맞는 자동화를 위로 올리고 "지금 이 사이트" 섹션으로 묶는다.
 function renderHome() {
   const svc = currentService;
-  const matched = svc ? AUTOMATIONS.filter((a) => a.services?.includes(svc)) : [];
-  const rest = AUTOMATIONS.filter((a) => !matched.includes(a));
+  const pool = visibleAutomations();
+  const matched = svc ? pool.filter((a) => a.services?.includes(svc)) : [];
+  const rest = pool.filter((a) => !matched.includes(a));
   // 매칭 그룹 안에서도 실행 가능한 것 먼저
   const byReady = (arr) => [...arr].sort((a, b) => (b.ready ? 1 : 0) - (a.ready ? 1 : 0));
 
@@ -98,7 +104,7 @@ function renderHome() {
     html += `<div class="home-hd" style="margin-top:18px">그 밖의 자동화</div>
       <div class="list">${byReady(rest).map(card).join('')}</div>`;
   } else {
-    html += `<div class="home-hd">자동화</div><div class="list">${byReady(AUTOMATIONS).map(card).join('')}</div>`;
+    html += `<div class="home-hd">자동화</div><div class="list">${byReady(pool).map(card).join('')}</div>`;
   }
   $('auto-list-wrap').innerHTML = html;
   $('auto-list-wrap').querySelectorAll('.auto[data-id]').forEach((btn) => {
@@ -550,7 +556,21 @@ chrome.runtime.onMessage.addListener((msg) => {
   const mf = chrome.runtime.getManifest();
   const el = $('app-ver');
   if (el) el.textContent = `v${mf.version_name || mf.version}`;
+  // 배지 연타 → 코드 입력 → 숨김 기능 해제/잠금(이 기기에만 저장).
+  let taps = 0, tapTimer = 0;
+  el?.addEventListener('click', () => {
+    taps++; clearTimeout(tapTimer); tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    if (taps < 5) return;
+    taps = 0;
+    const cur = eduUnlocked;
+    const code = window.prompt(cur ? '잠글까요? (비우고 확인하면 잠금)' : '숨김 기능 코드를 입력하세요');
+    if (code === null) return;
+    if (cur && code.trim() === '') { eduUnlocked = false; chrome.storage.local.set({ eduUnlocked: false }); renderHome(); return; }
+    if (code.trim() === EDU_UNLOCK_CODE) { eduUnlocked = true; chrome.storage.local.set({ eduUnlocked: true }); renderHome(); }
+    else if (!cur) window.alert('코드가 올바르지 않아요.');
+  });
 }
+chrome.storage.local.get('eduUnlocked').then(({ eduUnlocked: u }) => { eduUnlocked = !!u; if (!$('view-home').hidden) renderHome(); }).catch(() => {});
 
 // ── 상단바 · 연도 ──
 for (const y of [thisYear, thisYear - 1]) {
