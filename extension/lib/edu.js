@@ -314,6 +314,13 @@ export async function readStudy(tabId) {
 
 export const closeStudy = (tabId) => closeTab(tabId);
 
+// wisehrd 영상 팝업만 닫는다(마무리 재실행 후 재시청 없이 닫을 때).
+export async function wiseClosePopup() {
+  const pops = await chrome.tabs.query({ url: `${WISE}/course/player.jsp*` }).catch(() => []);
+  for (const p of pops) await closeTab(p.id);
+  return pops.length;
+}
+
 // 별도 LMS(안전보건교육 · wisehrd) 강의실 구조 덤프 — 자동화 설계용. 프레임·스크립트·video·전역 함수 이름만 읽는다.
 export async function dumpStudyTab(tabId) {
   const frames = await listFrames(tabId);
@@ -388,11 +395,12 @@ export async function wiseCurriculum(tabId, cuid, reload) {
       const idx = (t.match(/^(\d{2})/) || [])[1] || '';
       const pct = Number((t.match(/(\d+(?:\.\d+)?)%/) || [])[1]);
       const doneCell = [...tr.querySelectorAll('td')].map((td) => td.innerText.trim());
-      const done = /\bY\b/.test(t) || doneCell.includes('Y') || pct >= 100;
+      const certified = doneCell.includes('Y') || /\bY\b\s*$/.test(t); // 차시수료여부 Y = 시험까지 통과
+      const videoDone = pct >= 100;                                       // 진도율 100% = 영상만 끝남
       const play = [...tr.querySelectorAll('[onclick],a[href]')].map((e) => e.getAttribute('onclick') || e.getAttribute('href') || '')
         .find((o) => /PlayContent\(/.test(o));
       const m = play && play.match(/PlayContent\(\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*\)/);
-      return { idx, title: t.replace(/^\d{2}\s*/, '').slice(0, 40), pct: pct || 0, done,
+      return { idx, title: t.replace(/^\d{2}\s*/, '').slice(0, 40), pct: pct || 0, certified, videoDone, done: certified,
         play: m ? { cid: m[1], crsid: m[2], cuid: m[3], chapter: m[4] } : null };
     });
     const myPct = Number((document.body.innerText.match(/나의진도율\s*([\d.]+)%/) || [])[1]) || 0;

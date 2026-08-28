@@ -5,7 +5,7 @@ import { getOvertime } from './lib/overtime.js';
 import { getCorrectionTargets, submitCorrections } from './lib/correction.js';
 import { getYagunTaxi, getYasik, submitExpenseApproval } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
-import { getEduStatus, getEduCreds, setEduCreds, clearEduCreds, openStudy, readStudy, closeStudy, dumpStudyTab, wiseOpen, wiseCurriculum, wisePlay, wiseReadPlayer, wiseSetSpeed } from './lib/edu.js';
+import { getEduStatus, getEduCreds, setEduCreds, clearEduCreds, openStudy, readStudy, closeStudy, dumpStudyTab, wiseOpen, wiseCurriculum, wisePlay, wiseReadPlayer, wiseSetSpeed, wiseClosePopup } from './lib/edu.js';
 import { openLoginAndWait } from './lib/tab.js';
 
 // 자동화 레지스트리 — 메시지 타입 → 실행 함수. 새 자동화는 여기 한 줄.
@@ -55,6 +55,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'edu-wise-open') { wiseOpen(msg.course).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message, needsEduId: e.needsEduId || null })); return true; }
   if (msg?.type === 'edu-wise-curriculum') { wiseCurriculum(msg.tabId, msg.cuid, msg.reload).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-play') { wisePlay(msg.tabId, msg.play, msg.speed).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-wise-close-popup') { wiseClosePopup().then((n) => reply({ ok: true, closed: n })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-speed') { wiseSetSpeed(msg.tabId, msg.speed).then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-read') { wiseReadPlayer(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-dump') { dumpStudyTab(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }

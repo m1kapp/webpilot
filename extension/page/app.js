@@ -1372,6 +1372,7 @@ function renderWiseWatch() {
   else if (waiting) state = `${w.examWait.examIdx}차시 시험 대기 중 — 통과하면 ${w.examWait.nextIdx}차시 영상이 자동으로 이어져요`;
   else if (w.finished) state = `영상 ${doneN}/${w.chasis.length}차시 완료 · 시험은 직접 응시`;
   else if (w.needAuth) state = '본인인증이 필요해요 — 강의실에서 휴대폰 인증 후 다시';
+  else if (w.finalizing) state = `${w.finalizing}차시 마무리(학습하기 재실행) — 시험을 여는 중`;
   else if (moving) state = '재생 중';
   else if (stalled) state = `${Math.round(sinceMove)}초째 멈춤 · 재생 보정 중`;
   else state = w.note || '차시 여는 중…';
@@ -1382,8 +1383,13 @@ function renderWiseWatch() {
       <span class="ew-side">${live ? `${doneN}/${w.chasis.length}차시${w.popupOpen && info?.at ? ` · ${Math.max(0, Math.round((Date.now() - info.at) / 1000))}s 전 신호` : ''}` : ''}</span></div>
     <div class="ew-title">안전보건교육 (별도 LMS · 팝업)</div>
     ${w.chasis?.length ? `<div class="ew-chasi">${w.chasis.map((c) => {
-      const state = c.done ? 'done' : (w.popupOpen && w.cur && c.idx === w.cur.idx) ? 'play' : (w.examWait && c.idx === w.examWait.nextIdx) ? 'lock-next' : c.play ? 'open' : 'lock';
-      const label = state === 'done' ? '✓' : state === 'play' ? '▶' : state === 'lock' || state === 'lock-next' ? '🔒' : c.idx;
+      const st = c.certified ? 'done'
+        : (w.popupOpen && w.cur && c.idx === w.cur.idx) ? 'play'
+        : (c.videoDone && !c.certified) ? 'exam'
+        : (w.examWait && c.idx === w.examWait.nextIdx) ? 'lock-next'
+        : c.play ? 'open' : 'lock';
+      const label = st === 'done' ? '✓' : st === 'play' ? '▶' : st === 'exam' ? '시' : (st === 'lock' || st === 'lock-next') ? '🔒' : c.idx;
+      const state = st;
       return `<span class="ew-ch ${state}" title="${esc(c.idx)}차시 ${esc(c.title)}">${label}</span>`;
     }).join('')}</div>` : ''}
     ${cur ? `<div class="ew-line">${esc(cur.idx)}차시 ${esc(cur.title)}${w.player?.info?.dur ? ` · <span class="ew-clock">${fmtClock(w.player.info.cur)} / ${fmtClock(w.player.info.dur)}</span>` : ''}</div>` : ''}
@@ -1451,7 +1457,7 @@ async function wiseStart(course) {
   if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
   const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
     tabId: null, cuid: '', chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
-    examGate: null, examWait: null, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
+    examGate: null, examWait: null, finalizing: null, finalized: {}, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
   renderWiseWatch();
   const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
   try {
@@ -1465,41 +1471,51 @@ async function wiseStart(course) {
       const data = cr?.data;
       if (data?.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); break; }
       if (data?.chasis) w.chasis = data.chasis;
-      const next = w.chasis.find((c) => !c.done);
-      if (!next) { w.finished = true; break; }        // 영상 전 차시 완료
+      const next = w.chasis.find((c) => !c.certified);
+      if (!next) { w.finished = true; break; }        // 6차시 모두 수료(시험까지)
       w.cur = next;
-      if (next.play || w.popupOpen) w.examWait = null;
       // 팝업 상태 확인
       const rp = await chrome.runtime.sendMessage({ type: 'edu-wise-read', tabId: w.tabId }).catch(() => null);
       w.player = rp?.data || null;
       w.popupOpen = !!rp?.data?.popupOpen;
+
       if (w.popupOpen) {
+        // 영상 재생 중(또는 마무리 재실행 중) — 추적만.
         const c = rp.data.info?.cur ?? -1;
         if (c !== w.lastCur) { w.lastCur = c; w.lastMoveAt = Date.now(); }
+        // 마무리 재실행이면 짧게 열었다 닫는다(재시청 불필요 — 시험 노출만 트리거).
+        if (w.finalizing === next.idx) {
+          const ended = rp.data.info?.ended || rp.data.info?.phase === 'ended';
+          if (ended || Date.now() - w.finalizeAt > 9000) {
+            await chrome.runtime.sendMessage({ type: 'edu-wise-close-popup' }).catch(() => {});
+            w.finalized[next.idx] = true; w.finalizing = null;
+            await sleep(1500);
+            await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid, reload: true }).catch(() => {});
+          }
+        }
         idle = 0;
-      } else if (next.play) {
-        // 팝업이 없고 이 차시가 열려 있으면(학습하기 노출) 재생 시작
+      } else if (!next.videoDone && next.play) {
+        // 아직 영상 안 끝남 → 정상 재생(끝까지).
+        w.examWait = null;
         w.note = `${next.idx}차시 여는 중…`;
         await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: next.play, speed: w.speed }).catch(() => {});
         w.lastMoveAt = Date.now(); w.lastCur = -1; idle = 0;
         await sleep(2500);
+      } else if (next.videoDone && !next.certified && !w.finalized[next.idx] && next.play) {
+        // 영상은 끝났는데 아직 수료 전 → "학습하기 한 번 더"(마무리)를 자동으로 눌러 시험 노출을 트리거.
+        w.examWait = null;
+        w.note = `${next.idx}차시 마무리(학습하기 재실행)…`;
+        w.finalizing = next.idx; w.finalizeAt = Date.now();
+        await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: next.play, speed: w.speed }).catch(() => {});
+        await sleep(2500);
       } else {
-        // 잠긴 차시. 목차를 강제로 다시 읽어(팝업 닫힘 후 index.jsp 로 튀는 경우 대비) 몇 번 확인.
-        idle++;
-        if (idle <= 4) {
-          w.note = '앞 차시 진도 반영 대기…';
-          await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid }).catch(() => {});
-        } else {
-          // 여전히 잠김 = 앞 차시 시험을 통과해야 열리는 구조. 멈추지 않고 감시를 계속한다 —
-          // 사용자는 다른 탭에서 시험을 보고, 통과해 차시가 열리면 이 루프가 자동으로 다음 영상을 연다.
-          const doneChasis = w.chasis.filter((c) => c.done);
-          const lastDone = doneChasis[doneChasis.length - 1];
-          w.examWait = { examIdx: lastDone ? lastDone.idx : '', nextIdx: next.idx, doneN: doneChasis.length };
-          // 강의실 탭은 목차에 두고 새로고침만 한다(시험은 별도 탭이라 방해 없음) → 통과 시 잠금 해제 감지.
-          await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid, reload: true }).catch(() => {});
-          await sleep(5000);
-          continue;
-        }
+        // 영상·마무리까지 끝났고(또는 차시가 잠겨) 수료만 남음 = 시험 차례. 멈추지 않고 감시 지속.
+        const doneChasis = w.chasis.filter((c) => c.certified);
+        const lastVideo = [...w.chasis].reverse().find((c) => c.videoDone && !c.certified);
+        w.examWait = { examIdx: lastVideo ? lastVideo.idx : next.idx, nextIdx: next.idx, doneN: doneChasis.length };
+        await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid, reload: true }).catch(() => {});
+        await sleep(5000);
+        continue;
       }
       renderWiseWatch();
       await sleep(3000);
