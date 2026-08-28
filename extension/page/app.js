@@ -1157,7 +1157,8 @@ function renderEdu(d) {
       <div class="edu-list">${cs.map((c, i) => eduRow(c, i)).join('')}</div>
       <p class="foot">1배속 실시간 재생이에요. 강의창 탭이 뒤에서 열리고, 한 편이 끝나면 다음 편으로 넘깁니다.
         ${external.length ? `<b>${esc(external.map((c) => c.title.replace(/\s*\(.*$/, '')).join(', '))}</b>은 별도 LMS라 직접 수강해야 해요. ` : ''}
-        이 패널을 닫으면 과정 간 전환이 멈춥니다(편 넘김은 강의창이 열려 있는 한 계속).</p>
+        이 패널을 닫으면 과정 간 전환이 멈춥니다(편 넘김은 강의창이 열려 있는 한 계속).
+        <b>안전보건</b>은 한 차시 영상이 끝나면 그 차시 시험을 통과해야 다음 차시가 열립니다 — 영상은 자동, 시험은 직접이에요.</p>
     </div>`;
   $('edu-run-all').onclick = () => eduStart(pending);
   $('edu-change-id').onclick = () => { buildSteps(current || {}); $('run-err').hidden = true; $('run-live').hidden = true; show('run'); promptEduId(''); };
@@ -1358,6 +1359,7 @@ function renderWiseWatch() {
   const doneN = w.chasis.filter((c) => c.done).length;
   let state;
   if (w.error) state = w.error;
+  else if (w.examGate) state = `${w.examGate.idx}차시 영상 완료 — 시험을 응시하면 다음 차시가 열려요`;
   else if (w.finished) state = `영상 ${doneN}/${w.chasis.length}차시 완료 · 시험은 직접 응시`;
   else if (w.needAuth) state = '본인인증이 필요해요 — 강의실에서 휴대폰 인증 후 다시';
   else if (moving) state = '재생 중';
@@ -1379,10 +1381,15 @@ function renderWiseWatch() {
   if (actions) {
     actions.innerHTML = live
       ? `<button class="btn btn-danger" id="ew-stop">중지</button><button class="btn btn-ghost" id="ew-show">강의실 보기</button>`
-      : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
+      : w.examGate
+        ? `<button class="btn btn-primary" id="ew-exam">${w.examGate.idx}차시 시험 보기</button><button class="btn btn-ghost" id="ew-refresh">시험 후 다음 차시</button>`
+        : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
     $('ew-stop')?.addEventListener('click', () => { if (wiseWatch) wiseWatch.stop = true; });
     $('ew-show')?.addEventListener('click', () => w.tabId && chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
-    $('ew-refresh')?.addEventListener('click', () => { wiseWatch = null; if (current) start(current); });
+    $('ew-refresh')?.addEventListener('click', () => { const c = w.course; wiseWatch = null; if (c) wiseStart(c); else if (current) start(current); });
+    $('ew-exam')?.addEventListener('click', () => {
+      if (w.tabId && w.cuid) chrome.tabs.update(w.tabId, { active: true, url: `https://kgeduone.wisehrd.com/classroom/exam.jsp?cuid=${w.cuid}` }).catch(() => {});
+    });
   }
   box.querySelectorAll('.ew-sp').forEach((b) => {
     b.onclick = () => {
@@ -1397,18 +1404,18 @@ function renderWiseWatch() {
 async function wiseStart(course) {
   if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
   const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
-    tabId: null, chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
-    speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
+    tabId: null, cuid: '', chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
+    examGate: null, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
   renderWiseWatch();
   const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
   try {
     const open = await chrome.runtime.sendMessage({ type: 'edu-wise-open', course }).catch((e) => ({ ok: false, error: e.message }));
     if (!open?.ok) { w.error = open?.error || '강의실을 열지 못했어요'; return; }
-    w.tabId = open.data.tabId;
+    w.tabId = open.data.tabId; w.cuid = open.data.cuid || '';
     if (open.data.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); return; }
     let idle = 0;
     while (!w.stop) {
-      const cr = await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId }).catch(() => null);
+      const cr = await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid }).catch(() => null);
       const data = cr?.data;
       if (data?.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); break; }
       if (data?.chasis) w.chasis = data.chasis;
@@ -1430,10 +1437,18 @@ async function wiseStart(course) {
         w.lastMoveAt = Date.now(); w.lastCur = -1; idle = 0;
         await sleep(2500);
       } else {
-        // 잠긴 차시 — 앞 차시 커밋 대기(팝업 닫힘 후 목차 새로고침). 목차를 다시 읽어 갱신.
-        w.note = '앞 차시 진도 반영 대기…';
-        if (++idle > 40) { w.error = '다음 차시가 열리지 않아요 — 강의실에서 직접 확인해주세요'; break; }
-        await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId }).catch(() => {});
+        // 잠긴 차시. 목차를 강제로 다시 읽어(팝업 닫힘 후 index.jsp 로 튀는 경우 대비) 몇 번 확인.
+        idle++;
+        if (idle <= 4) {
+          w.note = '앞 차시 진도 반영 대기…';
+          await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid }).catch(() => {});
+        } else {
+          // 여전히 잠김 = 앞 차시 시험을 통과해야 열리는 구조. 에러가 아니라 "시험 차례"로 깔끔히 멈춘다.
+          const doneN = w.chasis.filter((c) => c.done).length;
+          w.examGate = { idx: next.idx, doneN };
+          w.finished = true;
+          break;
+        }
       }
       renderWiseWatch();
       await sleep(3000);

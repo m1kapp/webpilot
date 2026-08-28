@@ -53,7 +53,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'edu-creds-clear') { clearEduCreds().then(() => reply({ ok: true })); return true; }
   if (msg?.type === 'edu-read-study') { readStudy(msg.tabId).then((r) => reply({ ok: true, data: r })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-open') { wiseOpen(msg.course).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message, needsEduId: e.needsEduId || null })); return true; }
-  if (msg?.type === 'edu-wise-curriculum') { wiseCurriculum(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-wise-curriculum') { wiseCurriculum(msg.tabId, msg.cuid).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-play') { wisePlay(msg.tabId, msg.play, msg.speed).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-speed') { wiseSetSpeed(msg.tabId, msg.speed).then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: e.message })); return true; }
   if (msg?.type === 'edu-wise-read') { wiseReadPlayer(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
