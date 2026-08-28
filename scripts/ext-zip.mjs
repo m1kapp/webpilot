@@ -1,6 +1,7 @@
 // 스토어 업로드용 zip 생성. 폴더째가 아니라 extension/ 내용물을 압축한다(manifest.json이 최상위여야 함).
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,5 +25,13 @@ mkdirSync(outDir, { recursive: true });
 const out = join(outDir, `webwing-extension-${version}.zip`);
 rmSync(out, { force: true });
 
-execFileSync('zip', ['-r', '-q', out, '.', '-x', '.DS_Store', '-x', '__MACOSX/*', '-x', 'README.md'], { cwd: ext });
+// manifest 의 key 는 압축해제 로드용(어느 폴더에서 열어도 확장 ID 가 같게 → chrome.storage 가 유지된다).
+// 스토어 업로드 패키지에는 넣을 수 없으므로 임시 사본에서 지우고 압축한다.
+const stage = mkdtempSync(join(tmpdir(), 'webwing-zip-'));
+cpSync(ext, stage, { recursive: true });
+const mf = JSON.parse(readFileSync(join(stage, 'manifest.json'), 'utf8'));
+delete mf.key;
+writeFileSync(join(stage, 'manifest.json'), JSON.stringify(mf, null, 2) + '\n');
+execFileSync('zip', ['-r', '-q', out, '.', '-x', '.DS_Store', '-x', '__MACOSX/*', '-x', 'README.md'], { cwd: stage });
+rmSync(stage, { recursive: true, force: true });
 console.log(`✅ ${name} ${version} → ${out}`);

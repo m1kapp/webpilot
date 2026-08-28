@@ -55,6 +55,10 @@ npm run ext:sync
 
 코드를 고친 뒤에는 확장 카드의 **새로고침** 버튼을 눌러야 반영된다.
 
+manifest 의 `key` 덕에 어느 폴더에서 로드하든 확장 ID 가 `oalenmdiejialpofljpoknfjpmlojdfh` 로 고정된다 —
+지웠다 다시 로드해도 `chrome.storage`(Flow 키·사번 등)가 그대로다. 개인키는 `~/.config/webwing/extension-key.pem`(레포 밖).
+`npm run ext:zip` 은 스토어 규칙에 맞게 `key` 를 뺀 사본을 압축한다.
+
 ### 디버깅
 
 | 증상 | 볼 곳 |
@@ -76,6 +80,30 @@ npm run ext:sync
 이 분리 덕분에 `innerText`가 실제로 렌더된 화면에서 나오고, 데스크톱판 정규식이 그대로 동작한다.
 (`fetch` + `DOMParser`로 파싱하면 `innerText`가 비어 정규식이 깨진다. 휴가 종류를 확인하는
 상세페이지 조회에서 화면 밖 오프스크린 요소를 쓰는 것도 같은 이유다 — `display:none`은 `innerText`를 비운다.)
+
+### 법정의무교육 (KG에듀원 사이버연수원)
+
+다른 자동화와 달리 세션을 빌리지 않고 **사번으로 직접 로그인**한다(사이트가 아이디=초기 비밀번호=사번).
+사번·비밀번호는 `chrome.storage.local`(`eduCreds`)에만 있다.
+
+- `lib/edu.js` — 로그인, 수강 목록(`article.course`), 과정별 분량(강의실 `js/cfg.js`의 `pageinfo` 합산), 강의창 열기(첫 미완료 편부터), 상태 읽기.
+- `content/edu-player.js` — 강의창 플레이어 프레임에 `world: MAIN`으로 주입. 이어보기 confirm 수락, 한 편이 끝나면 플랫폼 자체 `nextpage()` 호출, 자동재생이 막히면 음소거 재생, 상태를 `top.document.documentElement.dataset.webwingEdu`에 기록.
+- 과정 간 전환 루프는 **패널**(`page/app.js`의 `eduStart`)에서 돈다 — 서비스 워커는 놀면 죽는다.
+
+**손대지 않는 것**: 배속·탐색·진도 전송. 서버 진도는 강의창이 열린 실시간 초(`PROGRESS_OUTLOG_DOING.asp`)와 편별 마커(`ProgressMarkerWrite.asp`)로 쌓인다.
+1배속 그대로 재생하고 넘기기만 한다. 안전보건교육은 별도 LMS(wisehrd)라 링크만 연다.
+
+안전보건교육(별도 LMS · wisehrd)은 구조가 다르다: 차시별 영상이 **팝업 창**(`window.open`)으로 뜨고,
+진도는 팝업이 열린 실시간 초로 opener(강의실)가 저장한다. `content/edu-wise.js`가 팝업 영상이 `ended`되면
+창을 닫아 opener가 진도를 커밋하게 하고, 패널(`wiseStart`)이 다음 차시 `PlayContent`를 연다.
+**차시별 시험(6개)은 자동화하지 않는다 — 사람이 직접 응시해야 수료된다.** 본인인증은 세션당 한 번 사람이 한다.
+
+실사이트 스모크(가짜 서버 없음, 실제 진도 쌓임):
+
+```bash
+EDU_EMPNO=M00000000 npm run ext:edu-smoke     # 4과정(campus21)
+EDU_EMPNO=M00000000 npm run ext:wise-smoke     # 안전보건(wisehrd 팝업)
+```
 
 ### 스토어 배포
 

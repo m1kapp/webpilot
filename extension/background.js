@@ -5,6 +5,7 @@ import { getOvertime } from './lib/overtime.js';
 import { getCorrectionTargets, submitCorrections } from './lib/correction.js';
 import { getYagunTaxi, getYasik, submitExpenseApproval } from './lib/bizplay.js';
 import { getFlowKey, setFlowKey, verifyFlowKey } from './lib/flow.js';
+import { getEduStatus, getEduCreds, setEduCreds, clearEduCreds, openStudy, readStudy, closeStudy, dumpStudyTab, wiseOpen, wiseCurriculum, wisePlay, wiseReadPlayer } from './lib/edu.js';
 import { openLoginAndWait } from './lib/tab.js';
 
 // 자동화 레지스트리 — 메시지 타입 → 실행 함수. 새 자동화는 여기 한 줄.
@@ -16,6 +17,8 @@ const RUNNERS = {
   'yagun': (msg, progress) => getYagunTaxi(msg.month, progress),
   'yasik': (msg, progress) => getYasik(msg.month, progress),
   'expense-submit': (msg, progress) => submitExpenseApproval(msg.kind, msg.month, msg.items, msg.proofFile, progress),
+  'edu': (msg, progress) => getEduStatus(progress),
+  'edu-open-study': (msg, progress) => openStudy(msg.course, progress),
 };
 
 // 툴바 아이콘 → 사이드 패널. 팝업과 달리 다른 곳을 클릭해도 닫히지 않아
@@ -40,6 +43,22 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return true;
   }
 
+  // 법정의무교육 — 사번 저장/삭제, 강의창 상태 읽기/닫기(감시 루프는 패널에서 돈다)
+  if (msg?.type === 'edu-creds-get') { getEduCreds().then((c) => reply({ ok: true, empNo: c?.empNo || '' })); return true; }
+  if (msg?.type === 'edu-creds-save') {
+    setEduCreds({ empNo: msg.empNo, password: msg.password }).then(() => reply({ ok: true }))
+      .catch((e) => reply({ ok: false, error: e.message }));
+    return true;
+  }
+  if (msg?.type === 'edu-creds-clear') { clearEduCreds().then(() => reply({ ok: true })); return true; }
+  if (msg?.type === 'edu-read-study') { readStudy(msg.tabId).then((r) => reply({ ok: true, data: r })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-wise-open') { wiseOpen(msg.course).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message, needsEduId: e.needsEduId || null })); return true; }
+  if (msg?.type === 'edu-wise-curriculum') { wiseCurriculum(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-wise-play') { wisePlay(msg.tabId, msg.play).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-wise-read') { wiseReadPlayer(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-dump') { dumpStudyTab(msg.tabId).then((d) => reply({ ok: true, data: d })).catch((e) => reply({ ok: false, error: e.message })); return true; }
+  if (msg?.type === 'edu-close-study') { closeStudy(msg.tabId).then(() => reply({ ok: true })); return true; }
+
   // 자동화 실행
   const run = RUNNERS[msg?.type];
   if (!run) return;
@@ -50,7 +69,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   run(msg, progress)
     .then((data) => reply({ ok: true, data }))
     .catch((e) => reply({ ok: false, error: e.message || String(e),
-      needsLogin: e.needsLogin || null, needsFlowKey: e.needsFlowKey || null, needsAppUrl: e.needsAppUrl || null,
+      needsLogin: e.needsLogin || null, needsFlowKey: e.needsFlowKey || null, needsAppUrl: e.needsAppUrl || null, needsEduId: e.needsEduId || null,
       detail: e.detail || (e.stack ? String(e.stack).split('\n').slice(0, 3).join('\n') : '') }));
   return true; // 비동기 응답
 });

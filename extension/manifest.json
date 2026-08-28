@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "Webwing",
   "version": "0.1.0",
-  "description": "타임인아웃·비즈플레이·Flow에 로그인된 상태에서 연차·초과근무·정정·경비 결의를 사이드 패널에서 조회합니다.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAthQEn/TCU5h7IgUtTTQf3vcu3F4o1Ce1BuQOBaKPFfRY2jcJpTnX3HcevNjLXlJ8ye679cBf+rnwV2b5HeRmKg/t6ZmuDoVUY+ntWr9GJkZ+LyMV3NTB22duXlNhtqbXRruhBeRzJx2UaAKtIASaBLOvzSXJkNzvMtk7k3qWP0vYeRzTLckeEIqMPU4MYdrWNlCbiH7v/2rC7jdFPZAEDOYMCJDErUhp6QLxKVnlXnvNx9tZH6HyseF0jH52u8DIhLIHZuOiXogVQbhNWMKHJxeaRF98m74XVel3q2FM0c1K8M8W7UffWH9speTBoSdwXL6IWQ+52W5IXCDkWxF6qwIDAQAB",
+  "description": "타임인아웃·비즈플레이·Flow에 로그인된 상태에서 연차·초과근무·정정·경비 결의를 사이드 패널에서 조회하고, 법정의무교육 진도를 관제합니다.",
   "permissions": [
     "storage",
     "scripting",
@@ -15,12 +16,39 @@
     "https://api.flow.team/*",
     "https://www.bizplay.co.kr/*",
     "https://*.bizplay.co.kr/*",
-    "https://*.appplay.co.kr/*"
+    "https://*.appplay.co.kr/*",
+    "*://ehrd.kgeduone.co.kr/*",
+    "*://*.campus21.co.kr/*",
+    "*://kgeduone.wisehrd.com/*"
   ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.campus21.co.kr/cpclassroom/onlinestudy/*"
+      ],
+      "js": [
+        "content/edu-player.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://kgeduone.wisehrd.com/data/content/*"
+      ],
+      "js": [
+        "content/edu-wise.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
   "side_panel": {
     "default_path": "page/index.html"
   },
@@ -39,5 +67,5 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "version_name": "0.1.0 (2026-08-05t)"
+  "version_name": "0.1.0 (2026-08-28a)"
 }

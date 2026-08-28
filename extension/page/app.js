@@ -46,11 +46,17 @@ const AUTOMATIONS = [
     steps: ['비즈플레이 여는 중', '카드영수증 앱 여는 중', '미결의 조회', '타임인아웃 근태 매칭'],
     render: (d) => renderExpense(d, 'yasik'),
   },
+  {
+    id: 'edu', label: '법정의무교육', sub: '진도 관제 · 끝난 편은 다음 편으로',
+    ready: true, msg: 'edu', services: ['ehrd'],
+    steps: ['사이버연수원 여는 중', '로그인 확인', '수강 목록 읽는 중', '과정별 분량 계산'],
+    render: renderEdu,
+  },
 ];
 
 // 서비스 로고 — 자동화 아이콘은 이모지 대신 관련 서비스 로고 배지(데스크톱과 동일). 파란 점=타임인아웃/Webwing.
-const SVC_ICON = { timeinout: '../icons/svc-timeinout.png', bizplay: '../icons/svc-bizplay.png', flow: '../icons/svc-flow.png' };
-const SVC_LABEL = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow' };
+const SVC_ICON = { timeinout: '../icons/svc-timeinout.png', bizplay: '../icons/svc-bizplay.png', flow: '../icons/svc-flow.png', ehrd: '../icons/svc-ehrd.png' };
+const SVC_LABEL = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow', ehrd: '사이버연수원' };
 // 자동화 아이콘 HTML: 관련 서비스 로고를 '+'로 이어 붙인다.
 const autoIcon = (a) => (a.services || []).map((s, i) =>
   `${i ? '<span class="plus">+</span>' : ''}<img src="${SVC_ICON[s]}" alt="">`).join('');
@@ -63,9 +69,10 @@ const SERVICE_OF_HOST = (host) => {
   if (/timeinout\.kr$/.test(host)) return 'timeinout';
   if (/bizplay\.co\.kr$/.test(host)) return 'bizplay';
   if (/flow\.team$/.test(host)) return 'flow';
+  if (/kgeduone\.co\.kr$|campus21\.co\.kr$/.test(host)) return 'ehrd';
   return null;
 };
-const SERVICE_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow' };
+const SERVICE_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이', flow: 'Flow', ehrd: '사이버연수원' };
 let currentService = null; // 지금 보고 있는 사이트의 서비스
 
 let current = null; // 실행 중인 자동화
@@ -218,6 +225,7 @@ async function execute(auto) {
       e.needsLogin = res?.needsLogin || null;
       e.needsFlowKey = res?.needsFlowKey || null;
       e.needsAppUrl = res?.needsAppUrl || null;
+      e.needsEduId = res?.needsEduId || null;
       e.detail = res?.detail || '';
       throw e;
     }
@@ -232,6 +240,7 @@ async function execute(auto) {
   } catch (e) {
     if (current !== auto) return;
     if (e.needsFlowKey) return promptFlowKey();
+    if (e.needsEduId) return promptEduId(e.message);
     failCurrentStep(e.message, e.needsLogin, e.detail, e.needsAppUrl);
   }
 }
@@ -299,6 +308,40 @@ async function saveFlowKey() {
   $('run-retry').disabled = false;
   if (!res?.ok) { $('flow-key-msg').style.color = 'var(--red)'; $('flow-key-msg').textContent = res?.error || '키 확인 실패'; return; }
   if (current) start(current); // 저장 성공 → 재실행
+}
+
+// 사이버연수원 사번 입력 → 저장 → 자동 재실행. 아이디·초기 비밀번호가 모두 사번이라 사번 하나면 된다.
+// 비밀번호를 바꾼 사람만 함께 넣는다. 둘 다 이 기기의 chrome.storage.local 에만 남는다.
+function promptEduId(message) {
+  const active = stepEls.find((el) => el.classList.contains('active')) || stepEls[stepEls.length - 1];
+  active?.classList.remove('active'); active?.classList.add('err');
+  const why = message && !/사번이 필요/.test(message) ? `<div style="color:var(--red);font-size:12px;margin-bottom:6px">${esc(message)}</div>` : '';
+  $('run-err').hidden = false;
+  $('run-err').innerHTML = `
+    <div style="color:var(--ink);font-weight:700;margin-bottom:3px">사이버연수원 사번이 필요해요</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:9px">아이디와 초기 비밀번호가 모두 <b>사번</b>이에요. 비밀번호를 바꿨다면 함께 넣어주세요. 이 기기에만 저장됩니다.</div>
+    ${why}
+    <input id="edu-id-input" placeholder="사번 (예: M18112601)" autocomplete="off" spellcheck="false"
+      style="width:100%;padding:9px 11px;border:1px solid #d9dcec;border-radius:9px;font:inherit;margin-bottom:8px" />
+    <input id="edu-pw-input" type="password" placeholder="비밀번호 (비우면 사번과 같음)" autocomplete="off"
+      style="width:100%;padding:9px 11px;border:1px solid #d9dcec;border-radius:9px;font:inherit;margin-bottom:8px" />
+    <div id="edu-id-msg" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:6px"></div>`;
+  $('run-actions').hidden = false;
+  $('run-retry').textContent = '저장하고 계속';
+  $('run-retry').onclick = saveEduCreds;
+  chrome.runtime.sendMessage({ type: 'edu-creds-get' }).then((r) => { if (r?.empNo && $('edu-id-input')) $('edu-id-input').value = r.empNo; }).catch(() => {});
+  setTimeout(() => $('edu-id-input')?.focus(), 50);
+  $('edu-pw-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveEduCreds(); });
+}
+async function saveEduCreds() {
+  const empNo = ($('edu-id-input')?.value || '').trim();
+  const password = ($('edu-pw-input')?.value || '').trim();
+  if (!empNo) { $('edu-id-msg').textContent = '사번을 입력하세요'; return; }
+  $('run-retry').disabled = true;
+  const res = await chrome.runtime.sendMessage({ type: 'edu-creds-save', empNo, password });
+  $('run-retry').disabled = false;
+  if (!res?.ok) { $('edu-id-msg').textContent = res?.error || '저장 실패'; return; }
+  if (current) start(current);
 }
 
 // 로그인하기 → 로그인 페이지 열고 완료 대기 → 그 자동화 자동 재실행
@@ -990,4 +1033,384 @@ function scrollCalToCurrent() {
     const cur = cal.querySelector('[data-current="1"]');
     if (cur) cal.scrollLeft = Math.max(0, cur.offsetLeft - cal.offsetLeft - 2);
   });
+}
+
+// ════════ 법정의무교육 ════════
+// 1배속 실시간. 강의창 탭을 뒤에 열어 두고, 플레이어 도우미(content/edu-player.js)가 끝난 편을 다음 편으로 넘긴다.
+// 과정 하나가 끝나면 여기서 탭을 닫고 다음 과정을 연다 — 이 전환 루프는 패널이 살아 있는 동안만 돈다.
+const fmtDur = (sec) => {
+  sec = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}시간 ${m}분` : m ? `${m}분${s ? ` ${s}초` : ''}` : `${s}초`;
+};
+const fmtClock = (sec) => { sec = Math.max(0, Math.floor(Number(sec) || 0)); return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
+const fmtEta = (sec) => {
+  const t = new Date(Date.now() + Math.max(0, Number(sec) || 0) * 1000);
+  const today = new Date();
+  const hm = `${t.getHours() < 12 ? '오전' : '오후'} ${t.getHours() % 12 || 12}:${String(t.getMinutes()).padStart(2, '0')}`;
+  return t.toDateString() === today.toDateString() ? hm : `${t.getMonth() + 1}/${t.getDate()} ${hm}`;
+};
+// 지금 편의 남은 초 + 같은 과정의 뒤 편들 + 대기 과정들
+function eduRemainSec(w) {
+  let sec = 0;
+  const info = w.lastInfo, c = w.course;
+  if (info && c?.pageList?.length) {
+    sec += Math.max(0, (info.dur || 0) - (info.cur || 0));
+    for (const p of c.pageList) if (p.chasi > info.chasi || (p.chasi === info.chasi && Number(p.pageNo) > info.page)) sec += p.sec;
+  } else if (c) sec += c.remainSec || 0;
+  for (const q of w.queue) sec += q.remainSec || 0;
+  return sec;
+}
+// 총량 게이지 — 자동 진행 4과정의 영상 초 합계 대비, 지금까지 본 초. 감시 중엔 매초 현재 편 위치까지 반영.
+function eduTotals() {
+  const cs = (eduData?.courses || []).filter((c) => !c.external);
+  const total = cs.reduce((s, c) => s + (c.totalSec || 0), 0);
+  let done = 0;
+  const w = eduWatch, info = w?.lastInfo, cur = w?.course;
+  for (const c of cs) {
+    if (w && cur && c.title === cur.title && info && c.pageList?.length && !w.finished) {
+      let before = 0;
+      for (const p of c.pageList) if (p.chasi < info.chasi || (p.chasi === info.chasi && Number(p.pageNo) < info.page)) before += p.sec;
+      done += Math.min(c.totalSec, before + Math.min(info.cur || 0, info.dur || 0));
+    } else done += (c.totalSec || 0) * Math.min(100, c.progress || 0) / 100;
+  }
+  return { total, done: Math.min(done, total) };
+}
+function renderEduGauge() {
+  const el = $('edu-gauge'); if (!el) return;
+  const { total, done } = eduTotals();
+  const pct = total ? Math.min(100, done / total * 100) : 0;
+  el.querySelector('i').style.width = `${pct.toFixed(2)}%`;
+  el.querySelector('.g-l').textContent = `들은 ${fmtDur(done)} · 전체 ${fmtDur(total)}`;
+  el.querySelector('.g-r').textContent = `남은 ${fmtDur(total - done)} · ${pct.toFixed(1)}%`;
+  renderEduLiveRow();
+}
+// 지금 돌고 있는 과정의 카드 — 진도바가 매초 차오르고 줄무늬가 흐른다.
+function renderEduLiveRow() {
+  const w = eduWatch, info = w?.lastInfo, c = w?.course;
+  document.querySelectorAll('.edu-row.live').forEach((r) => { if (!w || w.finished || w.stop || !c || r.dataset.title !== c.title) r.classList.remove('live'); });
+  if (!w || w.finished || w.stop || w.error || !c || !info) return;
+  const row = [...document.querySelectorAll('.edu-row')].find((r) => r.dataset.title === c.title);
+  if (!row) return;
+  row.classList.add('live');
+  const moving = w.lastMoveAt && (Date.now() - w.lastMoveAt) / 1000 < 6;
+  row.classList.toggle('moving', !!moving);
+  if (c.pageList?.length && c.totalSec) {
+    let before = 0;
+    for (const p of c.pageList) if (p.chasi < info.chasi || (p.chasi === info.chasi && Number(p.pageNo) < info.page)) before += p.sec;
+    const done = Math.min(c.totalSec, before + Math.min(info.cur || 0, info.dur || 0));
+    const pct = done / c.totalSec * 100;
+    row.querySelector('.edu-bar i').style.width = `${pct.toFixed(2)}%`;
+    row.querySelector('.edu-meta span:first-child').textContent = `${pct.toFixed(1)}%`;
+    row.querySelector('.edu-meta span:nth-child(2)').textContent = `${c.chasis}차시 ${c.pages}편 · 들은 ${fmtDur(done)} · 남은 ${fmtDur(c.totalSec - done)}`;
+  }
+}
+let eduData = null;
+let eduWatch = null; // { stop, queue, course, tabId, lastInfo, note, error, done:[], startedAt }
+
+function renderEdu(d) {
+  eduData = d;
+  const cs = d.courses || [];
+  const auto = cs.filter((c) => !c.external);
+  const avg = cs.length ? Math.round(cs.reduce((s, c) => s + (c.progress || 0), 0) / cs.length) : 0;
+  const remain = auto.reduce((s, c) => s + (c.remainSec || 0), 0);
+  const total = auto.reduce((s, c) => s + (c.totalSec || 0), 0);
+  const end = cs.map((c) => c.end).filter(Boolean).sort()[0] || '';
+  const dday = end ? Math.ceil((new Date(`${end}T23:59:59+09:00`) - Date.now()) / 86400000) : null;
+  const pending = auto.filter((c) => c.progress < 100);
+  const external = cs.filter((c) => c.external);
+  $('view-result').innerHTML = `
+    <div class="card edu-top" id="edu-top">
+      <div class="edu-gauge" id="edu-gauge">
+        <div class="edu-gauge-hd"><span class="l">전체 진도 · 자동 진행 ${auto.length}과정</span><span class="g-r"></span></div>
+        <div class="edu-gauge-bar"><i style="width:0%"></i></div>
+        <div class="edu-gauge-lb"><span class="g-l"></span><span class="g-eta">${pending.length ? `지금 시작하면 ${fmtEta(remain)} 끝` : ''}</span></div>
+      </div>
+      <div id="edu-watch" hidden></div>
+      <div class="edu-actions" id="edu-top-actions">
+        <button class="btn btn-primary" id="edu-run-all" ${pending.length ? '' : 'disabled'}>${pending.length ? `자동 학습 시작 · ${pending.length}과정` : '자동 진행분 모두 완료'}</button>
+      </div>
+    </div>
+    <div class="kpis" style="margin-bottom:14px">
+      <div class="kpi"><div class="l">평균 진도</div><div class="v">${avg}%</div></div>
+      <div class="kpi"><div class="l">남은 강의</div><div class="v" style="font-size:19px">${fmtDur(remain)}</div><div class="l">전체 ${fmtDur(total)}</div></div>
+      <div class="kpi"><div class="l">기한</div><div class="v">${dday == null ? '-' : dday < 0 ? '지남' : dday === 0 ? 'D-day' : `D-${dday}`}</div><div class="l">${esc(end)}</div></div>
+    </div>
+    <div class="card">
+      <h2>과정 <span class="side">${cs.length}개 · 사번 ${esc(d.empNo)} <button id="edu-change-id" class="edu-link">변경</button></span></h2>
+      <div class="edu-list">${cs.map((c, i) => eduRow(c, i)).join('')}</div>
+      <p class="foot">1배속 실시간 재생이에요. 강의창 탭이 뒤에서 열리고, 한 편이 끝나면 다음 편으로 넘깁니다.
+        ${external.length ? `<b>${esc(external.map((c) => c.title.replace(/\s*\(.*$/, '')).join(', '))}</b>은 별도 LMS라 직접 수강해야 해요. ` : ''}
+        이 패널을 닫으면 과정 간 전환이 멈춥니다(편 넘김은 강의창이 열려 있는 한 계속).</p>
+    </div>`;
+  $('edu-run-all').onclick = () => eduStart(pending);
+  $('edu-change-id').onclick = () => { buildSteps(current || {}); $('run-err').hidden = true; $('run-live').hidden = true; show('run'); promptEduId(''); };
+  $('view-result').querySelectorAll('[data-run]').forEach((b) => {
+    b.onclick = () => { const i = Number(b.dataset.run); eduStart(auto.filter((c) => c.progress < 100 && cs.indexOf(c) >= i)); };
+  });
+  $('view-result').querySelectorAll('[data-dump]').forEach((b) => {
+    b.onclick = async () => {
+      const tabs = await chrome.tabs.query({ url: ['*://kgeduone.wisehrd.com/*', '*://*.campus21.co.kr/*'] }).catch(() => []);
+      const row = b.closest('.edu-row');
+      let pre = row.querySelector('pre.edu-dump');
+      if (!pre) { pre = document.createElement('pre'); pre.className = 'edu-dump'; row.appendChild(pre); }
+      if (!tabs.length) { pre.textContent = '강의실 탭이 열려 있지 않아요. 강의실 열기 → 본인인증 → 강의 화면까지 간 뒤 눌러주세요.'; return; }
+      pre.textContent = '읽는 중…';
+      const parts = [];
+      for (const t of tabs) {
+        const res = await chrome.runtime.sendMessage({ type: 'edu-dump', tabId: t.id });
+        parts.push(`# tab ${t.id} ${t.url}\n` + (res?.ok ? JSON.stringify(res.data, null, 1) : `오류: ${res?.error}`));
+      }
+      pre.textContent = parts.join('\n\n');
+    };
+  });
+  $('view-result').querySelectorAll('[data-open]').forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = '여는 중…';
+      const res = await chrome.runtime.sendMessage({ type: 'edu-open-study', course: cs[Number(b.dataset.open)] });
+      b.disabled = false; b.textContent = '강의실 열기';
+      if (res?.ok && res.data?.tabId) chrome.tabs.update(res.data.tabId, { active: true });
+    };
+  });
+  $('view-result').querySelectorAll('[data-wise]').forEach((b) => {
+    b.onclick = () => wiseStart(cs[Number(b.dataset.wise)]);
+  });
+  renderEduGauge();
+  if (eduWatch) renderEduWatch(); else eduAdopt(cs);
+}
+
+// 패널을 새로고침했거나 닫았다 열었을 때 — 이미 열려 있는 강의창이 있으면 그걸 이어서 감시한다(새로 열지 않는다).
+async function eduAdopt(cs) {
+  const tabs = await chrome.tabs.query({ url: '*://*.campus21.co.kr/cpclassroom/onlinestudy/*' }).catch(() => []);
+  const tab = tabs[0];
+  if (!tab || eduWatch) return;
+  const r = await chrome.runtime.sendMessage({ type: 'edu-read-study', tabId: tab.id }).catch(() => null);
+  const info = r?.data?.info;
+  const course = cs.find((c) => info?.lecture && (c.title.includes(info.lecture) || info.lecture.includes(c.title.replace(/\.\.\.$/, ''))))
+    || cs.find((c) => !c.external && c.progress < 100);
+  if (!course) return;
+  const rest = cs.filter((c) => !c.external && c.progress < 100 && c !== course && cs.indexOf(c) > cs.indexOf(course));
+  eduStart(rest, { adopt: { tabId: tab.id, course } });
+}
+
+function eduRow(c, i) {
+  const pct = Math.min(100, Math.max(0, Math.round(c.progress || 0)));
+  const meta = c.external ? '별도 LMS · 직접 수강'
+    : `${c.chasis}차시 ${c.pages}편 · ${fmtDur(c.totalSec)}${pct < 100 ? ` · 남은 ${fmtDur(c.remainSec)}` : ''}`;
+  const chip = pct >= 100 ? '<span class="edu-chip done">완료</span>' : pct > 0 ? '<span class="edu-chip">진행 중</span>' : '<span class="edu-chip idle">미시작</span>';
+  const btn = c.external ? `<button class="edu-btn" data-wise="${i}">영상 자동 진행</button><button class="edu-btn ghost" data-open="${i}">강의실 열기</button>`
+    : pct >= 100 ? '' : `<button class="edu-btn" data-run="${i}">여기부터</button>`;
+  const examChip = c.external ? '<span class="edu-chip warn">차수별 시험</span>'
+    : /응시하지 않습니다/.test(c.exam || '') ? '<span class="edu-chip idle">시험 없음</span>'
+    : c.exam ? '<span class="edu-chip warn">시험 있음</span>' : '';
+  const sub = [c.criteria ? `수료기준 ${c.criteria}` : '', c.exam && !/응시하지 않습니다/.test(c.exam) ? c.exam : ''].filter(Boolean).join(' · ');
+  return `<div class="edu-row" data-title="${esc(c.title)}">
+    <div class="edu-row-hd"><div class="edu-title">${esc(c.title)}</div><span class="edu-chips">${examChip}${chip}</span></div>
+    <div class="edu-bar"><i style="width:${pct}%"></i></div>
+    <div class="edu-meta"><span>${pct}%</span><span>${esc(meta)}</span>${btn}</div>
+    ${sub ? `<div class="edu-sub">${esc(sub)}</div>` : ''}</div>`;
+}
+
+function renderEduWatch() {
+  renderEduGauge();
+  const box = $('edu-watch');
+  const w = eduWatch;
+  if (!box || !w) return;
+  const info = w.lastInfo;
+  const live = !w.stop && !w.finished && !w.error;
+  const sinceMove = w.lastMoveAt ? (Date.now() - w.lastMoveAt) / 1000 : null;
+  const moving = live && sinceMove != null && sinceMove < 6;
+  const stalled = live && sinceMove != null && sinceMove >= 6;
+  $('edu-top')?.classList.toggle('live', live);
+  $('edu-top')?.classList.toggle('moving', moving);
+  $('edu-top')?.classList.toggle('stall', stalled);
+  box.hidden = false;
+  const title = w.course ? w.course.title : '';
+  const elapsed = w.startedAt ? fmtDur((Date.now() - w.startedAt) / 1000) : '';
+  const left = live ? eduRemainSec(w) : 0;
+  let state = '';
+  if (live) state = moving ? '재생 중' : stalled ? `${Math.round(sinceMove)}초째 멈춤 · 재생 보정 중` : (w.note || '신호 기다리는 중');
+  else if (w.error) state = w.error;
+  else if (w.finished) state = `${w.done.length ? `${w.done.length}과정 완료` : '끝'} · ${elapsed}`;
+  else state = '멈춤';
+  let where = '';
+  if (info) {
+    where = `${info.chasi}차시 ${info.page}/${info.pages}편${info.pageTitle ? ` · ${info.pageTitle}` : ''}`
+      + (info.dur ? ` · <span class="ew-clock">${fmtClock(info.cur)} / ${fmtClock(info.dur)}</span>` : '')
+      + (info.muted ? ' · 음소거' : '');
+  } else if (w.note && live) where = w.note;
+  box.innerHTML = `
+    <div class="ew-hd"><span class="ew-dot${live ? (moving ? ' on' : stalled ? ' stall' : '') : ' off'}"></span>
+      <span class="ew-state">${esc(state)}</span>
+      <span class="ew-side">${live && elapsed ? `경과 ${elapsed}` : ''}${live && w.queue.length ? ` · 대기 ${w.queue.length}` : ''}</span></div>
+    ${title ? `<div class="ew-title">${esc(title)}</div>` : ''}
+    ${where ? `<div class="ew-line">${where}</div>` : ''}
+    ${live && w.course ? `<div class="ew-line">남은 ${fmtDur(left)} · 예상 종료 <b class="ew-clock">${fmtEta(left)}</b></div>` : ''}`;
+  const actions = $('edu-top-actions');
+  if (actions) {
+    actions.innerHTML = live
+      ? `<button class="btn btn-danger" id="ew-stop">중지 · 강의창 닫기</button>${w.tabId ? '<button class="btn btn-ghost" id="ew-show">강의창 보기</button>' : ''}`
+      : `<button class="btn btn-primary" id="ew-restart">자동 학습 다시 시작</button><button class="btn btn-ghost" id="ew-refresh">진도 새로고침</button>`;
+    $('ew-stop')?.addEventListener('click', eduStop);
+    $('ew-show')?.addEventListener('click', () => chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
+    $('ew-refresh')?.addEventListener('click', () => { eduWatch = null; if (current) start(current); });
+    $('ew-restart')?.addEventListener('click', () => {
+      const cs = eduData?.courses || [];
+      eduWatch = null;
+      eduStart(cs.filter((c) => !c.external && c.progress < 100));
+    });
+  }
+}
+
+async function eduStop() {
+  const w = eduWatch;
+  if (!w) return;
+  w.stop = true;
+  if (w.tabId) await chrome.runtime.sendMessage({ type: 'edu-close-study', tabId: w.tabId }).catch(() => {});
+  w.tabId = null;
+  renderEduWatch();
+}
+
+// 진도 목록만 조용히 다시 읽어 그린다(감시 상자는 유지).
+async function eduRefresh() {
+  const res = await chrome.runtime.sendMessage({ type: 'edu' }).catch(() => null);
+  if (res?.ok && current?.id === 'edu') renderEdu(res.data);
+}
+
+async function eduStart(queue, { adopt } = {}) {
+  if (!queue?.length && !adopt) return;
+  if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
+  const w = eduWatch = { stop: false, finished: false, queue: [...(queue || [])], course: null, tabId: null, lastInfo: null, note: '', error: '', done: [], startedAt: Date.now() };
+  if (adopt) w.queue.unshift(adopt.course);
+  renderEduWatch();
+  const ticker = setInterval(() => { if (eduWatch === w && !w.finished) renderEduWatch(); }, 1000);
+  try {
+    while (!w.stop && w.queue.length) {
+      const course = w.course = w.queue.shift();
+      w.tabId = null; w.lastInfo = null; w.note = '강의실 여는 중…';
+      renderEduWatch();
+      let res;
+      if (adopt && course === adopt.course) { res = { ok: true, data: { tabId: adopt.tabId } }; w.note = '열려 있던 강의창 이어서 감시'; }
+      else res = await chrome.runtime.sendMessage({ type: 'edu-open-study', course }).catch((e) => ({ ok: false, error: e.message }));
+      if (w.stop) break;
+      if (!res?.ok) { w.error = res?.error || '강의창을 열지 못했어요'; break; }
+      if (res.data?.external) { w.note = '별도 LMS — 직접 수강해야 해요'; continue; }
+      if (res.data?.done) { w.note = '이미 모든 편을 마친 과정'; w.done.push(course.title); continue; }
+      w.tabId = res.data.tabId; if (!adopt || course !== adopt.course) w.note = '강의창 준비 중…';
+      let silent = 0;
+      while (!w.stop) {
+        await sleep(3000);
+        const r = await chrome.runtime.sendMessage({ type: 'edu-read-study', tabId: w.tabId }).catch(() => null);
+        const st = r?.data;
+        if (!st || st.gone) { w.note = '강의창이 닫혔어요'; w.tabId = null; break; }
+        if (st.left) { w.note = '강의창이 다른 페이지로 이동했어요'; break; }
+        if (st.info) {
+          // 영상 시각이 실제로 움직였는지 — "돌고 있다"는 신호는 이것 하나다. 3초 넘게 안 움직이면 상자가 노랗게 바뀐다.
+          if (st.info.cur !== w.lastCur) { w.lastCur = st.info.cur; w.lastMoveAt = Date.now(); }
+          w.lastInfo = st.info; w.note = ''; silent = 0;
+          if (st.info.phase === 'course-done') { w.done.push(course.title); break; }
+          if (st.info.phase === 'stuck') { w.error = `${course.title}: ${st.info.note || '다음 편으로 넘어가지 못했어요'}`; break; }
+        } else if (++silent > 30) { w.error = '강의창이 응답하지 않아요 (플레이어를 찾지 못함)'; break; }
+        renderEduWatch();
+      }
+      if (w.tabId && !w.error) { await chrome.runtime.sendMessage({ type: 'edu-close-study', tabId: w.tabId }).catch(() => {}); w.tabId = null; }
+      if (w.error || w.stop) break;
+      await eduRefresh();
+    }
+  } finally {
+    clearInterval(ticker);
+    if (eduWatch === w) { w.finished = !w.stop; renderEduWatch(); if (!w.stop && !w.error) eduRefresh(); }
+  }
+}
+
+// ── 안전보건교육(별도 LMS) 영상 자동 진행 ──
+// 차시별 팝업(화면 위에 뜬다)을 순서대로 재생하고, 영상이 끝나면 도우미가 팝업을 닫아 다음 차시로 넘어간다.
+// 시험은 자동화하지 않는다 — 차시별 시험은 사람이 직접 응시해야 수료된다.
+let wiseWatch = null;
+function renderWiseWatch() {
+  const box = $('edu-watch'); const w = wiseWatch;
+  if (!box || !w) return;
+  renderEduGauge();
+  const live = !w.stop && !w.finished && !w.error;
+  const sinceMove = w.lastMoveAt ? (Date.now() - w.lastMoveAt) / 1000 : null;
+  const moving = live && sinceMove != null && sinceMove < 6;
+  const stalled = live && w.popupOpen && sinceMove != null && sinceMove >= 6;
+  $('edu-top')?.classList.toggle('live', live);
+  $('edu-top')?.classList.toggle('moving', moving);
+  $('edu-top')?.classList.toggle('stall', stalled);
+  box.hidden = false;
+  const doneN = w.chasis.filter((c) => c.done).length;
+  let state;
+  if (w.error) state = w.error;
+  else if (w.finished) state = `영상 ${doneN}/${w.chasis.length}차시 완료 · 시험은 직접 응시`;
+  else if (w.needAuth) state = '본인인증이 필요해요 — 강의실에서 휴대폰 인증 후 다시';
+  else if (moving) state = '재생 중';
+  else if (stalled) state = `${Math.round(sinceMove)}초째 멈춤 · 재생 보정 중`;
+  else state = w.note || '차시 여는 중…';
+  const cur = w.cur;
+  box.innerHTML = `
+    <div class="ew-hd"><span class="ew-dot${live ? (moving ? ' on' : stalled ? ' stall' : '') : ' off'}"></span>
+      <span class="ew-state">${esc(state)}</span>
+      <span class="ew-side">${live ? `${doneN}/${w.chasis.length}차시` : ''}</span></div>
+    <div class="ew-title">안전보건교육 (별도 LMS · 팝업)</div>
+    ${cur ? `<div class="ew-line">${esc(cur.idx)}차시 ${esc(cur.title)}${w.player?.info?.dur ? ` · <span class="ew-clock">${fmtClock(w.player.info.cur)} / ${fmtClock(w.player.info.dur)}</span>` : ''}</div>` : ''}
+    <div class="ew-line" style="color:#b7791f">시험 6차시는 사람이 직접 응시해야 수료돼요.</div>`;
+  const actions = $('edu-top-actions');
+  if (actions) {
+    actions.innerHTML = live
+      ? `<button class="btn btn-danger" id="ew-stop">중지</button><button class="btn btn-ghost" id="ew-show">강의실 보기</button>`
+      : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
+    $('ew-stop')?.addEventListener('click', () => { if (wiseWatch) wiseWatch.stop = true; });
+    $('ew-show')?.addEventListener('click', () => w.tabId && chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
+    $('ew-refresh')?.addEventListener('click', () => { wiseWatch = null; if (current) start(current); });
+  }
+}
+
+async function wiseStart(course) {
+  if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
+  const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
+    tabId: null, chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now() };
+  renderWiseWatch();
+  const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
+  try {
+    const open = await chrome.runtime.sendMessage({ type: 'edu-wise-open', course }).catch((e) => ({ ok: false, error: e.message }));
+    if (!open?.ok) { w.error = open?.error || '강의실을 열지 못했어요'; return; }
+    w.tabId = open.data.tabId;
+    if (open.data.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); return; }
+    let idle = 0;
+    while (!w.stop) {
+      const cr = await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId }).catch(() => null);
+      const data = cr?.data;
+      if (data?.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); break; }
+      if (data?.chasis) w.chasis = data.chasis;
+      const next = w.chasis.find((c) => !c.done);
+      if (!next) { w.finished = true; break; }        // 영상 전 차시 완료
+      w.cur = next;
+      // 팝업 상태 확인
+      const rp = await chrome.runtime.sendMessage({ type: 'edu-wise-read', tabId: w.tabId }).catch(() => null);
+      w.player = rp?.data || null;
+      w.popupOpen = !!rp?.data?.popupOpen;
+      if (w.popupOpen) {
+        const c = rp.data.info?.cur ?? -1;
+        if (c !== w.lastCur) { w.lastCur = c; w.lastMoveAt = Date.now(); }
+        idle = 0;
+      } else if (next.play) {
+        // 팝업이 없고 이 차시가 열려 있으면(학습하기 노출) 재생 시작
+        w.note = `${next.idx}차시 여는 중…`;
+        await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: next.play }).catch(() => {});
+        w.lastMoveAt = Date.now(); w.lastCur = -1; idle = 0;
+        await sleep(2500);
+      } else {
+        // 잠긴 차시 — 앞 차시 커밋 대기(팝업 닫힘 후 목차 새로고침). 목차를 다시 읽어 갱신.
+        w.note = '앞 차시 진도 반영 대기…';
+        if (++idle > 40) { w.error = '다음 차시가 열리지 않아요 — 강의실에서 직접 확인해주세요'; break; }
+        await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId }).catch(() => {});
+      }
+      renderWiseWatch();
+      await sleep(3000);
+    }
+  } finally {
+    clearInterval(ticker);
+    if (wiseWatch === w) { if (!w.stop && !w.error && !w.needAuth) w.finished = true; renderWiseWatch(); }
+  }
 }

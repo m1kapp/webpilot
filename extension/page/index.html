@@ -326,6 +326,60 @@
     .auto:hover:not(:disabled) { transform:none; }
     .auto:active:not(:disabled) { transform:scale(.99); }
   }
+
+  /* ── 법정의무교육 ── */
+  .edu-top { padding:16px 18px 14px; }
+  .edu-top.live { border-color:#bcd0ff; }
+  .edu-top.stall { border-color:#f0d49a; background:#fffaf0; }
+  .edu-gauge-hd { display:flex; justify-content:space-between; align-items:baseline; font-size:12px; color:var(--muted); }
+  .edu-gauge-hd .g-r { font-size:15px; font-weight:800; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .edu-gauge-bar { height:12px; border-radius:999px; background:var(--soft); overflow:hidden; margin-top:8px; }
+  .edu-gauge-bar i { display:block; height:100%; border-radius:999px; position:relative; overflow:hidden;
+    transition:width .9s linear; background:linear-gradient(90deg, #3b6fe0, #2fb36a); }
+  .edu-gauge-lb { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; color:var(--muted);
+    font-variant-numeric:tabular-nums; }
+  .edu-gauge-lb .g-l { font-weight:700; color:var(--ink); }
+  /* 살아있음 — 재생 중일 때만 바 위로 부드러운 빛이 한 번씩 지나간다. 멈추면 바가 호박색. */
+  .edu-top.moving .edu-gauge-bar i::after, .edu-row.live.moving .edu-bar i::after { content:''; position:absolute; top:0; bottom:0; width:45%;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation:ewshine 1.8s ease-in-out infinite; }
+  @keyframes ewshine { from { left:-45%; } to { left:100%; } }
+  .edu-top.stall .edu-gauge-bar i { background:#e0a020; }
+  .edu-list { display:flex; flex-direction:column; gap:10px; }
+  .edu-row { padding:11px 12px; border:1px solid var(--line); border-radius:12px; background:#fff; }
+  .edu-row.live { border-color:#9bb7ff; box-shadow:0 0 0 3px rgba(59,111,224,.10); }
+  .edu-row.live:not(.moving) .edu-bar i { background:#e0a020; }
+  .edu-row-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+  .edu-title { font-size:13px; font-weight:700; line-height:1.4; }
+  .edu-chip { flex:none; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; background:#eaf0fe; color:var(--blue); white-space:nowrap; }
+  .edu-chip.done { background:#e6f7ec; color:var(--ok); }
+  .edu-chip.idle { background:var(--soft); color:var(--muted); }
+  .edu-chip.warn { background:#fff1e6; color:#c2621a; }
+  .edu-chips { display:flex; gap:4px; flex:none; }
+  .edu-sub { font-size:11px; color:var(--muted); margin-top:5px; line-height:1.5; }
+  .edu-bar { height:6px; border-radius:999px; background:var(--soft); margin:8px 0 6px; overflow:hidden; }
+  .edu-bar i { display:block; height:100%; background:var(--blue); border-radius:999px; transition:width .9s linear; position:relative; overflow:hidden; }
+  .edu-meta { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--muted); }
+  .edu-meta span:first-child { font-weight:800; color:var(--ink); }
+  .edu-btn { margin-left:auto; flex:none; font-size:11.5px; font-weight:700; color:var(--blue); background:#eaf0fe; border-radius:8px; padding:4px 9px; }
+  .edu-btn:disabled { opacity:.6; cursor:default; }
+  .edu-btn.ghost { margin-left:6px; background:var(--soft); color:var(--muted); }
+  .edu-dump { margin:8px 0 0; padding:8px; background:var(--soft); border-radius:8px; font-size:10.5px; line-height:1.4;
+    white-space:pre-wrap; word-break:break-all; max-height:260px; overflow:auto; user-select:text; }
+  .edu-actions { margin-top:14px; display:flex; gap:8px; }
+  .edu-actions .btn { flex:1; }
+  .edu-link { font-size:11px; color:var(--blue); text-decoration:underline; padding:0; }
+  #edu-watch { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+  .ew-hd { display:flex; align-items:center; gap:8px; font-weight:800; font-size:13px; }
+  .ew-hd .ew-side { margin-left:auto; font-weight:600; color:var(--muted); font-size:11.5px; white-space:nowrap; }
+  .ew-dot { width:9px; height:9px; border-radius:50%; background:#c1c8d6; flex:none; }
+  .ew-dot.on { background:var(--ok); box-shadow:0 0 0 0 rgba(18,161,80,.45); animation:ewbeat 1.6s ease-out infinite; }
+  .ew-dot.stall { background:#e0a020; }
+  @keyframes ewbeat { 0% { box-shadow:0 0 0 0 rgba(18,161,80,.45); } 70% { box-shadow:0 0 0 7px rgba(18,161,80,0); } 100% { box-shadow:0 0 0 0 rgba(18,161,80,0); } }
+  .edu-top.stall .ew-state { color:#b7791f; }
+  .ew-title { font-size:13px; font-weight:700; margin-top:8px; }
+  .ew-line { font-size:12px; color:var(--muted); margin-top:3px; }
+  .ew-clock { font-variant-numeric:tabular-nums; font-weight:700; color:var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .ew-dot.on { animation:none; } .edu-top.moving .edu-gauge-bar i::after, .edu-row.live.moving .edu-bar i::after { animation:none; } }
 </style>
 </head>
 <body>
