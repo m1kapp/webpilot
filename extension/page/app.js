@@ -1395,7 +1395,7 @@ function renderWiseWatch() {
     <div class="ew-speed">배속(영상에 직접 적용)
       ${[1, 2, 4, 8].map((v) => `<button class="ew-sp${w.speed === v ? ' on' : ''}" data-sp="${v}">${v}x</button>`).join('')}
       <span class="ew-sp-now">${w.player?.info?.speed ? `현재 ${w.player.info.speed}x` : ''}</span></div>
-    <div class="ew-line" style="font-size:11px">위치정보 권한을 물으면 <b>허용</b>하세요(거부 시 팝업이 닫힙니다).</div>`;
+    <div class="ew-line" style="font-size:11px;color:#b7791f">⚠ 강의창이 <b>위치정보</b>를 물으면 반드시 <b>허용</b> — 거부하면 영상이 열리자마자 닫혀요(무한 반복).</div>`;
   const actions = $('edu-top-actions');
   if (actions) {
     actions.innerHTML = live
@@ -1453,7 +1453,7 @@ async function wiseStart(course) {
   if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
   const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
     tabId: null, cuid: '', chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
-    finalizing: null, finalizeAt: 0, finalized: {}, videosDone: false, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
+    finalizing: null, finalizeAt: 0, finalized: {}, videosDone: false, justPlayed: null, closeStreak: 0, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
   renderWiseWatch();
   const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
   try {
@@ -1471,6 +1471,19 @@ async function wiseStart(course) {
       const rp = await chrome.runtime.sendMessage({ type: 'edu-wise-read', tabId: w.tabId }).catch(() => null);
       w.player = rp?.data || null;
       w.popupOpen = !!rp?.data?.popupOpen;
+
+      // 방금 연 영상이 바로 닫혔는지 — 위치정보 거부 시 플레이어가 스스로 창을 닫는다(churn).
+      if (w.justPlayed && !w.popupOpen) {
+        const ch = w.chasis.find((c) => c.idx === w.justPlayed);
+        if (!ch || !ch.videoDone) {
+          w.closeStreak = (w.closeStreak || 0) + 1;
+          if (w.closeStreak >= 3) {
+            w.error = '영상이 열리자마자 닫혀요 — 강의창의 위치정보 권한을 "허용"으로 바꾼 뒤 다시 시작하세요(팝업 GPS 감시).';
+            break;
+          }
+        }
+        w.justPlayed = null;
+      } else if (w.popupOpen) { w.closeStreak = 0; w.justPlayed = null; }
 
       const playable = w.chasis.find((c) => !c.videoDone && c.play);       // 지금 볼 수 있는 영상
       const toFinalize = w.chasis.find((c) => c.videoDone && !w.finalized[c.idx] && c.play); // 학습하기 재실행 필요
@@ -1495,9 +1508,10 @@ async function wiseStart(course) {
         // 아직 안 본 영상 → 끝까지 재생.
         w.cur = playable;
         w.note = `${playable.idx}차시 여는 중…`;
+        w.justPlayed = playable.idx;
         await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: playable.play, speed: w.speed }).catch(() => {});
         w.lastMoveAt = Date.now(); w.lastCur = -1; idle = 0;
-        await sleep(2500);
+        await sleep(4000);
       } else if (toFinalize) {
         // 영상 끝난 차시 → 학습하기 재실행(마무리)해서 다음 차시 영상을 연다.
         w.cur = toFinalize;
