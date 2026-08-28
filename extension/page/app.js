@@ -47,7 +47,7 @@ const AUTOMATIONS = [
     render: (d) => renderExpense(d, 'yasik'),
   },
   {
-    id: 'edu', label: '법정의무교육', sub: '진도 관제 · 끝난 편은 다음 편으로',
+    id: 'edu', label: '20260831', sub: '잘 익히기',
     ready: true, gated: true, msg: 'edu', services: ['ehrd'],
     steps: ['사이버연수원 여는 중', '로그인 확인', '수강 목록 읽는 중', '과정별 분량 계산'],
     render: renderEdu,
@@ -76,7 +76,7 @@ const SERVICE_NAME = { timeinout: '타임인아웃', bizplay: '비즈플레이',
 let currentService = null; // 지금 보고 있는 사이트의 서비스
 // ── 숨김 기능(법정의무교육) 잠금 ──
 // 기본은 숨김. 배지를 여러 번 탭해 코드를 입력하면 이 기기에서만 열린다. 코드는 여기 한 줄만 바꾸면 된다.
-const EDU_UNLOCK_CODE = 'wingedu';
+const EDU_UNLOCK_CODE = 'madrascheck';
 let eduUnlocked = false;
 const visibleAutomations = () => AUTOMATIONS.filter((a) => !a.gated || eduUnlocked);
 
@@ -556,21 +556,22 @@ chrome.runtime.onMessage.addListener((msg) => {
   const mf = chrome.runtime.getManifest();
   const el = $('app-ver');
   if (el) el.textContent = `v${mf.version_name || mf.version}`;
-  // 배지 연타 → 코드 입력 → 숨김 기능 해제/잠금(이 기기에만 저장).
-  let taps = 0, tapTimer = 0;
-  el?.addEventListener('click', () => {
-    taps++; clearTimeout(tapTimer); tapTimer = setTimeout(() => { taps = 0; }, 1500);
-    if (taps < 5) return;
-    taps = 0;
-    const cur = eduUnlocked;
-    const code = window.prompt(cur ? '잠글까요? (비우고 확인하면 잠금)' : '숨김 기능 코드를 입력하세요');
-    if (code === null) return;
-    if (cur && code.trim() === '') { eduUnlocked = false; chrome.storage.local.set({ eduUnlocked: false }); renderHome(); return; }
-    if (code.trim() === EDU_UNLOCK_CODE) { eduUnlocked = true; chrome.storage.local.set({ eduUnlocked: true }); renderHome(); }
-    else if (!cur) window.alert('코드가 올바르지 않아요.');
-  });
 }
-chrome.storage.local.get('eduUnlocked').then(({ eduUnlocked: u }) => { eduUnlocked = !!u; if (!$('view-home').hidden) renderHome(); }).catch(() => {});
+// 우상단 "코드" 버튼 → 코드 입력 → 이 기기에 저장하고 숨김 기능(20260831) 해제/잠금.
+function updateCodeBtn() {
+  const b = $('code-entry'); if (!b) return;
+  b.classList.toggle('on', eduUnlocked);
+  b.textContent = eduUnlocked ? '코드 ✓' : '코드';
+}
+$('code-entry')?.addEventListener('click', () => {
+  const cur = eduUnlocked;
+  const code = window.prompt(cur ? '잠그려면 비우고 확인, 바꾸려면 새 코드 입력' : '코드를 입력하세요');
+  if (code === null) return;
+  if (cur && code.trim() === '') { eduUnlocked = false; chrome.storage.local.set({ eduUnlocked: false }); updateCodeBtn(); renderHome(); return; }
+  if (code.trim() === EDU_UNLOCK_CODE) { eduUnlocked = true; chrome.storage.local.set({ eduUnlocked: true }); updateCodeBtn(); renderHome(); }
+  else if (!cur) window.alert('코드가 올바르지 않아요.');
+});
+chrome.storage.local.get('eduUnlocked').then(({ eduUnlocked: u }) => { eduUnlocked = !!u; updateCodeBtn(); if (!$('view-home').hidden) renderHome(); }).catch(() => {});
 
 // ── 상단바 · 연도 ──
 for (const y of [thisYear, thisYear - 1]) {
@@ -1141,6 +1142,31 @@ function renderEduLiveRow() {
     row.querySelector('.edu-meta span:nth-child(2)').textContent = `${c.chasis}차시 ${c.pages}편 · 들은 ${fmtDur(done)} · 남은 ${fmtDur(c.totalSec - done)}`;
   }
 }
+
+// 안전보건 최종평가 정답 모음(참고용, 읽기 전용). 시험 페이지를 조작하지 않는다 — 그냥 문제↔정답을 보여준다.
+// 보기 순서가 응시마다 섞이므로 정답을 '지문'으로 적는다.
+const EXAM_KEY = [
+  { t: '안전 수칙·표지', q: "안전보건표지의 종류로 '틀린' 것", a: '휴식표지 (표지 4종: 금지·경고·지시·안내)' },
+  { t: '안전 수칙·표지', q: "사무직 근로자 정기교육 시간으로 '옳은' 것", a: '매반기 6시간 이상' },
+  { t: '안전 수칙·표지', q: '감전 위험 작업에 착용할 보호구', a: '절연용 보호구' },
+  { t: '직장 내 괴롭힘', q: "'피해자' 설명으로 '틀린' 것", a: '"정규직만 피해자로 인정된다" (고용형태 무관·계약직/기간제 포함)' },
+  { t: '직장 내 괴롭힘', q: '비밀 누설 금지 위반 과태료', a: '500만원 이하' },
+  { t: '직장 내 괴롭힘', q: "분쟁 해결 방법으로 '틀린' 것", a: '"고용노동부 신고 시 우편 접수만 가능" (방문·우편·온라인 모두 가능)' },
+  { t: '건강진단·건강관리', q: "배치 전 건강진단 설명으로 '틀린' 것", a: '"정기적으로 건강 상태 추이를 확인하기 위한 검사" (그건 정기건강진단)' },
+  { t: '건강진단·건강관리', q: "건강관리 판정 구분으로 '틀린' 것", a: '"A는 평가 곤란/질병 의심 근로자" (A=정상, 그 서술은 R). C1=직업병 요관찰, C2=일반질병 요관찰, D1=직업병 유소견' },
+  { t: '건강진단·건강관리', q: "건강 상태가 직무 만족도에 미치는 영향으로 '옳은' 것", a: '건강한 근로자는 직무 만족↑·이직률↓' },
+  { t: '건강진단·건강관리', q: "운동 관리의 '신체적 효능'에 해당하지 '않는' 것", a: '우울감 예방 (그건 정신적 효능)' },
+  { t: '건강진단·건강관리', q: '벤젠 작업 특수건강진단 주기', a: '6개월 (※ 확신 낮음 — 결과창 해설 재확인)' },
+  { t: '직업병', q: "'직업력 조사' 내용으로 '틀린' 것", a: '"동료 근로자들의 역학 자료" (본인 작업내용·근무기간·흡연/음주가 항목)' },
+  { t: '직업병', q: "'근골격계 질환'에 해당하는 것", a: '손목터널증후군 (천식·알레르기성 피부염·소음성 난청 아님)' },
+  { t: '직업병', q: "직업병의 특징이 '아닌' 것", a: '"개인의 성격적 요인이 주된 원인" (외적+내재 요인 복합)' },
+  { t: '근골격계 예방', q: "허리를 비트는 자세일 때 대처로 '틀린' 것", a: '"허리가 한쪽으로만 비틀리도록 작업"' },
+  { t: '근골격계 예방', q: "반복 작업 대응 전략으로 '틀린' 것", a: '"손목을 최대한 꺾어 힘을 분산"' },
+  { t: '근골격계 예방', q: "근골격계질환의 심리적·사회적 요인이 '아닌' 것", a: '흡연·음주 (직무스트레스·만족도저하·우울불안은 심리사회적)' },
+  { t: '뇌·심혈관', q: "위험요인 중 '환경적 요인'이 '아닌' 것", a: '사회적 고립 (대기오염·소음·기후변화는 환경적)' },
+  { t: '뇌·심혈관', q: "일상 속 피로 관리로 '틀린' 것", a: '"취침 전 1시간은 활동적으로 움직이기" (취침 전엔 안정)' },
+  { t: '뇌·심혈관', q: '관상동맥이 좁아져 심근에 혈액이 일시 부족해지는 질병', a: '협심증' },
+];
 let eduData = null;
 let eduWatch = null; // { stop, queue, course, tabId, lastInfo, note, error, done:[], startedAt }
 
@@ -1178,7 +1204,7 @@ function renderEdu(d) {
       <div class="kpi"><div class="l">기한</div><div class="v">${dday == null ? '-' : dday < 0 ? '지남' : dday === 0 ? 'D-day' : `D-${dday}`}</div><div class="l">${esc(end)}</div></div>
     </div>
     <div class="card">
-      <h2>과정 <span class="side">${cs.length}개 · 사번 ${esc(d.empNo)} <button id="edu-change-id" class="edu-link">변경</button></span></h2>
+      <h2>과정 <span class="side">${cs.length}개 · 사번 ${esc(d.empNo)} <button id="edu-change-id" class="edu-link">변경</button> · <button id="edu-exam-key" class="edu-link">시험 정답</button></span></h2>
       <div class="edu-list">${cs.map((c, i) => eduRow(c, i)).join('')}</div>
       <p class="foot">1배속 실시간 재생이에요. 강의창 탭이 뒤에서 열리고, 한 편이 끝나면 다음 편으로 넘깁니다.
         ${external.length ? `<b>${esc(external.map((c) => c.title.replace(/\s*\(.*$/, '')).join(', '))}</b>은 별도 LMS라 직접 수강해야 해요. ` : ''}
@@ -1188,6 +1214,7 @@ function renderEdu(d) {
   if ($('edu-run-all')) $('edu-run-all').onclick = () => eduStart(pending);
   if ($('edu-run-wise')) $('edu-run-wise').onclick = () => wiseStart(wsafety);
   $('edu-change-id').onclick = () => { buildSteps(current || {}); $('run-err').hidden = true; $('run-live').hidden = true; show('run'); promptEduId(''); };
+  if ($('edu-exam-key')) $('edu-exam-key').onclick = renderExamKey;
   $('view-result').querySelectorAll('[data-run]').forEach((b) => {
     b.onclick = () => { const i = Number(b.dataset.run); eduStart(auto.filter((c) => c.progress < 100 && cs.indexOf(c) >= i)); };
   });
@@ -1587,4 +1614,27 @@ async function wiseStart(course) {
     clearInterval(ticker);
     if (wiseWatch === w) { if (!w.stop && !w.error && !w.needAuth) w.finished = true; renderWiseWatch(); }
   }
+}
+
+// 시험 정답 모음(읽기 전용 참고 폼). 시험 페이지와 무관 — 아무것도 자동으로 누르거나 제출하지 않는다.
+function renderExamKey() {
+  const topics = [...new Set(EXAM_KEY.map((e) => e.t))];
+  const rows = (q) => EXAM_KEY
+    .filter((e) => !q || (e.q + e.a + e.t).toLowerCase().includes(q.toLowerCase()))
+    .map((e) => `<div class="ek-row"><div class="ek-t">${esc(e.t)}</div>
+      <div class="ek-q">${esc(e.q)}</div><div class="ek-a">→ ${esc(e.a)}</div></div>`).join('')
+    || '<div style="padding:16px;color:var(--muted)">검색 결과 없음</div>';
+  $('view-result').innerHTML = `
+    <div class="card">
+      <h2>안전보건 시험 정답 <span class="side">${EXAM_KEY.length}문항 · 참고용</span></h2>
+      <input id="ek-search" placeholder="문제·정답 검색 (예: 감전, 과태료, 협심증)"
+        style="width:100%;padding:9px 11px;border:1px solid #d9dcec;border-radius:9px;font:inherit;margin-bottom:10px" />
+      <div class="ek-list" id="ek-list">${rows('')}</div>
+      <p class="foot">보기 순서는 응시마다 섞여서 <b>정답 지문</b>으로 적었어요. 이 화면은 시험 페이지를 건드리지 않아요.
+        새 문제가 나오면 결과창 해설로 확인하세요.</p>
+    </div>
+    <div style="display:flex;gap:8px"><button class="btn btn-ghost" id="ek-back">과정으로</button></div>`;
+  $('ek-search').oninput = (e) => { $('ek-list').innerHTML = rows(e.target.value.trim()); };
+  $('ek-back').onclick = () => { if (current) start(current); };
+  setTimeout(() => $('ek-search')?.focus(), 40);
 }
