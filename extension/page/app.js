@@ -1364,6 +1364,7 @@ function renderWiseWatch() {
   $('edu-top')?.classList.toggle('stall', stalled || waitingExam);
   renderWiseLiveRow();
   box.hidden = false;
+  const info = w.player?.info || null;
   const doneN = w.chasis.filter((c) => c.done).length;
   const waiting = live && w.examWait;
   let state;
@@ -1380,8 +1381,13 @@ function renderWiseWatch() {
       <span class="ew-state">${esc(state)}</span>
       <span class="ew-side">${live ? `${doneN}/${w.chasis.length}차시${w.popupOpen && info?.at ? ` · ${Math.max(0, Math.round((Date.now() - info.at) / 1000))}s 전 신호` : ''}` : ''}</span></div>
     <div class="ew-title">안전보건교육 (별도 LMS · 팝업)</div>
+    ${w.chasis?.length ? `<div class="ew-chasi">${w.chasis.map((c) => {
+      const state = c.done ? 'done' : (w.popupOpen && w.cur && c.idx === w.cur.idx) ? 'play' : (w.examWait && c.idx === w.examWait.nextIdx) ? 'lock-next' : c.play ? 'open' : 'lock';
+      const label = state === 'done' ? '✓' : state === 'play' ? '▶' : state === 'lock' || state === 'lock-next' ? '🔒' : c.idx;
+      return `<span class="ew-ch ${state}" title="${esc(c.idx)}차시 ${esc(c.title)}">${label}</span>`;
+    }).join('')}</div>` : ''}
     ${cur ? `<div class="ew-line">${esc(cur.idx)}차시 ${esc(cur.title)}${w.player?.info?.dur ? ` · <span class="ew-clock">${fmtClock(w.player.info.cur)} / ${fmtClock(w.player.info.dur)}</span>` : ''}</div>` : ''}
-    <div class="ew-line" style="color:#b7791f">시험 6차시는 사람이 직접 응시해야 수료돼요.</div>
+    <div class="ew-line" style="color:#b7791f">차시마다 <b>영상→시험→다음 영상</b> 순서예요(사이트 강제). 시험만 몰아서는 불가.</div>
     <div class="ew-speed">배속(영상에 직접 적용)
       ${[1, 2, 4, 8].map((v) => `<button class="ew-sp${w.speed === v ? ' on' : ''}" data-sp="${v}">${v}x</button>`).join('')}
       <span class="ew-sp-now">${w.player?.info?.speed ? `현재 ${w.player.info.speed}x` : ''}</span></div>

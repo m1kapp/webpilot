@@ -123,14 +123,21 @@ async function readClassHome(tabId, k) {
   return { exam, report, criteria, progress };
 }
 
-// cfg.js(euc-kr) → 편 목록·분량·플래그. 강의실 세션 없이도 읽힌다.
+// cfg.js(euc-kr) → 편 목록·분량·플래그. 과정마다 고정이라 한 번 읽으면 캐시하고 다시 안 가져온다.
 async function fetchCourseDetail(classKey) {
+  const cacheKey = `eduDetail:${classKey}`;
+  try {
+    const c = (await chrome.storage.local.get(cacheKey))[cacheKey];
+    if (c && c.pages) return c;                       // 캐시 적중 — 네트워크 생략
+  } catch { /* 캐시 못 읽으면 그냥 가져온다 */ }
   for (const host of CLASS_HOSTS) {
     try {
       const res = await fetch(`${host}/cpclassroom/onlinestudy/${classKey}/js/cfg.js`, { cache: 'no-store' });
       if (!res.ok) continue;
       const text = new TextDecoder('euc-kr').decode(await res.arrayBuffer());
-      return parseCfg(text);
+      const detail = parseCfg(text);
+      try { await chrome.storage.local.set({ [cacheKey]: detail }); } catch { /* 저장 실패 무시 */ }
+      return detail;
     } catch { /* 다음 호스트 */ }
   }
   return null;
@@ -175,7 +182,16 @@ export async function getEduStatus(onProgress = () => {}) {
       const [, start, end] = row.date.match(/(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})/) || [];
       const detail = keys ? await fetchCourseDetail(keys.classKey) : null;
       // 강의실 첫 화면에서 최종평가·과제·수료기준을 읽는다(시험이 있는지, 몇 점이 기준인지).
-      const room = keys && detail ? await readClassHome(tabId, keys).catch(() => null) : null;
+      let room = null;
+      if (keys && detail) {
+        const rk = `eduRoom:${keys.classKey}`;
+        try { room = (await chrome.storage.local.get(rk))[rk] || null; } catch { room = null; }
+        // 이미 아는 과정(시험 유무·수료기준은 고정)이면 강의실을 다시 안 연다. 없을 때만 한 번 읽어 캐시.
+        if (!room || !room.cached) {
+          room = await readClassHome(tabId, keys).catch(() => null);
+          if (room) { room.cached = true; try { await chrome.storage.local.set({ [rk]: room }); } catch { /* */ } }
+        }
+      }
       // 강의실 서버에 cfg.js 가 없으면 다른 LMS(안전보건교육의 wisehrd 등)로 넘어가는 과정이다 — 자동 진행 대상이 아니다.
       const external = !detail;
       const remainSec = detail ? Math.round(detail.totalSec * (1 - progress / 100)) : null;
