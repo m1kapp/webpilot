@@ -379,11 +379,18 @@ export async function wiseCurriculum(tabId) {
 }
 
 // 차시 영상 팝업 열기 — 강의실 탭의 MAIN 월드에서 PlayContent 호출(팝업 opener 가 살아 있어야 진도가 저장된다).
-export async function wisePlay(tabId, play) {
+export async function wisePlay(tabId, play, speed = 1) {
+  await evaluate(tabId, (sp) => { document.documentElement.dataset.webwingWiseSpeed = String(sp); }, speed).catch(() => {});
   await evaluateMain(tabId, (p) => { window.PlayContent(p.cid, p.crsid, p.cuid, p.chapter); }, play);
   await sleep(1500);
   const pop = (await chrome.tabs.query({ url: `${WISE}/course/player.jsp*` }).catch(() => []))[0];
   return { popupTabId: pop ? pop.id : null };
+}
+
+// 배속 변경을 강의실 문서에 적어 둔다 — 도우미가 매초 읽어 팝업 영상에 적용한다.
+export async function wiseSetSpeed(tabId, speed) {
+  await evaluate(tabId, (sp) => { document.documentElement.dataset.webwingWiseSpeed = String(sp); }, speed).catch(() => {});
+  return true;
 }
 
 // 팝업 영상 상태 — 도우미(content/edu-wise.js)가 강의실 문서에 적어 둔 값 + 팝업 존재 여부.

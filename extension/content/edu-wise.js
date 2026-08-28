@@ -13,7 +13,7 @@
   if (!isContent || window.__webwingWise) return;
   window.__webwingWise = true;
 
-  let endedHandled = false, playTries = 0, lastT = -1, stalledSince = 0, lastUserAct = 0;
+  let endedHandled = false, playTries = 0, lastT = -1, stalledSince = 0, lastUserAct = 0, appliedSpeed = 0;
   ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { lastUserAct = Date.now(); }, true));
 
   // opener 체인: 콘텐츠프레임(this) → player.jsp 팝업(window.top) → 강의실(top.opener). 모두 같은 출처라 접근된다.
@@ -32,9 +32,33 @@
         paused: v ? v.paused : true,
         ended: v ? v.ended : false,
         muted: v ? v.muted : false,
+        speed: (function(){ try { return document.querySelector('video')?.playbackRate || 1; } catch { return 1; } })(),
         ...extra,
       });
     } catch { /* 다른 출처면 조용히 */ }
+  }
+
+  // 플랫폼이 제공하는 배속(0.5~2x)을 그대로 쓴다. 강의실(opener) 문서에 패널이 적어 둔 값을 읽어 적용.
+  // 진도가 실시간 초 기준이면 총시간은 안 줄지만, 이건 사이트의 공개 기능이라 조작이 아니다.
+  const SPEEDS = [0.5, 0.8, 1, 1.2, 1.5, 1.8, 2];
+  function wantedSpeed() {
+    const doc = classroomDoc();
+    let v = 1;
+    try { v = parseFloat(doc?.documentElement?.dataset?.webwingWiseSpeed || '1') || 1; } catch { v = 1; }
+    return v;
+  }
+  function applySpeed(video) {
+    const want = wantedSpeed();
+    if (want === appliedSpeed) return;
+    const idx = SPEEDS.indexOf(want);
+    let done = false;
+    if (idx >= 0) {
+      const btn = document.querySelector(`.speed[data-speed="${idx}"]`);
+      if (btn) { btn.click(); done = true; }
+    }
+    try { if (window.jQuery && jQuery('#jquery_jplayer_1').length) { jQuery('#jquery_jplayer_1').jPlayer('option', 'playbackRate', want); done = true; } } catch { /* */ }
+    try { if (video) video.playbackRate = want; } catch { /* */ }
+    if (done || video) appliedSpeed = want;
   }
 
   function closePopup() {
@@ -66,6 +90,7 @@
     if (!v) { publish({ phase: 'loading' }); return; }
     if (!bound) { bound = true; v.addEventListener('ended', onEnded); }
     if (v.ended) { onEnded(); publish({ phase: 'ended' }); return; }
+    applySpeed(v);
     const t = v.currentTime || 0;
     if (!v.paused && t !== lastT) { lastT = t; stalledSince = 0; }
     else {

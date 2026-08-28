@@ -1062,24 +1062,40 @@ function eduRemainSec(w) {
   return sec;
 }
 // 총량 게이지 — 자동 진행 4과정의 영상 초 합계 대비, 지금까지 본 초. 감시 중엔 매초 현재 편 위치까지 반영.
+const WISE_NOMINAL_SEC = 6 * 3600; // 안전보건 6h(별도 LMS라 편별 초를 못 읽어 명목값으로 잡는다)
 function eduTotals() {
-  const cs = (eduData?.courses || []).filter((c) => !c.external);
-  const total = cs.reduce((s, c) => s + (c.totalSec || 0), 0);
-  let done = 0;
+  const all = eduData?.courses || [];
+  const auto = all.filter((c) => !c.external);
   const w = eduWatch, info = w?.lastInfo, cur = w?.course;
-  for (const c of cs) {
+  let total = 0, done = 0;
+  for (const c of auto) {
+    total += c.totalSec || 0;
     if (w && cur && c.title === cur.title && info && c.pageList?.length && !w.finished) {
       let before = 0;
       for (const p of c.pageList) if (p.chasi < info.chasi || (p.chasi === info.chasi && Number(p.pageNo) < info.page)) before += p.sec;
       done += Math.min(c.totalSec, before + Math.min(info.cur || 0, info.dur || 0));
     } else done += (c.totalSec || 0) * Math.min(100, c.progress || 0) / 100;
   }
-  return { total, done: Math.min(done, total) };
+  // 안전보건(별도 LMS)도 전체에 포함 — 명목 6h 대비 차시 평균 진도(실행 중이면 실시간).
+  for (const c of all.filter((x) => x.external)) {
+    total += WISE_NOMINAL_SEC;
+    let pct = c.progress || 0;
+    if (wiseWatch && wiseWatch.chasis?.length) {
+      const cs = wiseWatch.chasis;
+      let sum = cs.reduce((a, x) => a + (x.done ? 100 : x.pct || 0), 0);
+      const pl = wiseWatch.player?.info;
+      if (pl?.dur) { const idx = cs.findIndex((x) => !x.done); if (idx >= 0) sum += Math.min(100, (pl.cur / pl.dur) * 100) - (cs[idx].pct || 0); }
+      pct = sum / cs.length;
+    }
+    done += WISE_NOMINAL_SEC * Math.min(100, pct) / 100;
+  }
+  return { total, done: Math.min(done, total), courses: auto.length + all.filter((x) => x.external).length };
 }
 function renderEduGauge() {
   const el = $('edu-gauge'); if (!el) return;
-  const { total, done } = eduTotals();
+  const { total, done, courses } = eduTotals();
   const pct = total ? Math.min(100, done / total * 100) : 0;
+  const hd = el.querySelector('.l'); if (hd) hd.textContent = `전체 진도 · ${courses}과정(안전보건 6h 포함)`;
   el.querySelector('i').style.width = `${pct.toFixed(2)}%`;
   el.querySelector('.g-l').textContent = `들은 ${fmtDur(done)} · 전체 ${fmtDur(total)}`;
   el.querySelector('.g-r').textContent = `남은 ${fmtDur(total - done)} · ${pct.toFixed(1)}%`;
@@ -1354,7 +1370,11 @@ function renderWiseWatch() {
       <span class="ew-side">${live ? `${doneN}/${w.chasis.length}차시` : ''}</span></div>
     <div class="ew-title">안전보건교육 (별도 LMS · 팝업)</div>
     ${cur ? `<div class="ew-line">${esc(cur.idx)}차시 ${esc(cur.title)}${w.player?.info?.dur ? ` · <span class="ew-clock">${fmtClock(w.player.info.cur)} / ${fmtClock(w.player.info.dur)}</span>` : ''}</div>` : ''}
-    <div class="ew-line" style="color:#b7791f">시험 6차시는 사람이 직접 응시해야 수료돼요.</div>`;
+    <div class="ew-line" style="color:#b7791f">시험 6차시는 사람이 직접 응시해야 수료돼요.</div>
+    <div class="ew-speed">배속(플랫폼 제공)
+      ${[1, 1.5, 2].map((v) => `<button class="ew-sp${w.speed === v ? ' on' : ''}" data-sp="${v}">${v}x</button>`).join('')}
+      <span class="ew-sp-now">${w.player?.info?.speed ? `현재 ${w.player.info.speed}x` : ''}</span></div>
+    <div class="ew-line" style="font-size:11px">위치정보 권한을 물으면 <b>허용</b>하세요(거부 시 팝업이 닫힙니다).</div>`;
   const actions = $('edu-top-actions');
   if (actions) {
     actions.innerHTML = live
@@ -1364,12 +1384,21 @@ function renderWiseWatch() {
     $('ew-show')?.addEventListener('click', () => w.tabId && chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
     $('ew-refresh')?.addEventListener('click', () => { wiseWatch = null; if (current) start(current); });
   }
+  box.querySelectorAll('.ew-sp').forEach((b) => {
+    b.onclick = () => {
+      w.speed = Number(b.dataset.sp);
+      try { localStorage.setItem('wiseSpeed', String(w.speed)); } catch { /* */ }
+      if (w.tabId) chrome.runtime.sendMessage({ type: 'edu-wise-speed', tabId: w.tabId, speed: w.speed }).catch(() => {});
+      renderWiseWatch();
+    };
+  });
 }
 
 async function wiseStart(course) {
   if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
   const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
-    tabId: null, chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now() };
+    tabId: null, chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
+    speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
   renderWiseWatch();
   const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
   try {
@@ -1397,7 +1426,7 @@ async function wiseStart(course) {
       } else if (next.play) {
         // 팝업이 없고 이 차시가 열려 있으면(학습하기 노출) 재생 시작
         w.note = `${next.idx}차시 여는 중…`;
-        await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: next.play }).catch(() => {});
+        await chrome.runtime.sendMessage({ type: 'edu-wise-play', tabId: w.tabId, play: next.play, speed: w.speed }).catch(() => {});
         w.lastMoveAt = Date.now(); w.lastCur = -1; idle = 0;
         await sleep(2500);
       } else {
