@@ -14,12 +14,12 @@ function readAll(key) {
   try { return JSON.parse(readFileSync(filePath(key), 'utf8')); } catch { return []; }
 }
 
-// data에서 snapshots(스크린샷 base64, 용량 큼) 제외한 사본을 저장
-export function saveHistory(key, data) {
+// data에서 snapshots(스크린샷 base64, 용량 큼) 제외한 사본을 저장. durationMs: 조회에 걸린 시간(이력 목록에 표시)
+export function saveHistory(key, data, durationMs) {
   if (!key || !data) return;
   const { snapshots, ...rest } = data;
   const entries = readAll(key);
-  entries.unshift({ id: `${Date.now()}`, savedAt: new Date().toISOString(), month: data.month || '', data: rest });
+  entries.unshift({ id: `${Date.now()}`, savedAt: new Date().toISOString(), month: data.month || '', durationMs: durationMs || 0, data: rest });
   entries.length = Math.min(entries.length, MAX_PER_KEY);
   mkdirSync(historyDir(), { recursive: true });
   atomicWrite(filePath(key), JSON.stringify(entries));
@@ -27,7 +27,7 @@ export function saveHistory(key, data) {
 
 // 목록만(요약) — 무거운 items/snapshots는 빼고 summary(대표 데이터 한 줄용)까지만
 export function listHistory(key) {
-  return readAll(key).map(({ id, savedAt, month, data }) => ({ id, savedAt, month, summary: data?.summary || null }));
+  return readAll(key).map(({ id, savedAt, month, durationMs, data }) => ({ id, savedAt, month, durationMs: durationMs || 0, summary: data?.summary || null }));
 }
 
 export function getHistoryEntry(key, id) {

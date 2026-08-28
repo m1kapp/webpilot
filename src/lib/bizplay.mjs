@@ -6,6 +6,10 @@ import { getBrowser, snap } from './browser.mjs';
 import { getOvertimeEmployee, fmt } from './timeinout.mjs';
 import { getSubmittedCorrections } from './correction.mjs';
 import { authPath, ensureAuthDir, dataDir } from './paths.mjs';
+// 판정·행 생성은 코어(src/core/expense.mjs). 이 파일은 비즈플레이에서 "가져오고 올리는" 일만 한다.
+import { isNight, isYasikMeal, yasikClass, yagunProofRowFromCorr, yagunProofRowFromRec } from '../core/expense.mjs';
+import { yagunDateOf } from '../core/calendar.mjs';
+export { yagunDateOf, yagunProofRowFromRec };
 
 const __dirname = dirname(fileURLToPath(import.meta.url)); // src/lib — 앱 리소스(읽기전용) 경로용, CWD 무관
 
@@ -17,11 +21,6 @@ const HOST = 'https://www.bizplay.co.kr';
 const AUTH = authPath('bizplay.json');
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const hourOf = (d) => { const m = String(d).match(/\s(\d{1,2}):/); return m ? +m[1] : -1; };
-const isNight = (d) => { const h = hourOf(d); return h >= 23 || (h >= 0 && h <= 3); };            // 23~03시
-const isDinner = (d) => { const h = hourOf(d); return h >= 17 && h <= 22; };                      // 저녁 17~22시
-const isBreakfast = (d) => { const h = hourOf(d); return h >= 5 && h <= 9; };                     // 조식 05~09시
-const isYasikMeal = (d) => isDinner(d) || isBreakfast(d);                                         // 야근식비 후보 시간대
 
 // 명시적 결의 규칙. test=분류 조건, submitUse=비즈플레이 용도 드롭다운 명칭(상신 시 바인딩)
 const RULES = [
@@ -29,19 +28,6 @@ const RULES = [
   // 야근식비: 혼자 먹은 1인 식대(13,000 이내). 저녁=그날 야근 있으면, 조식=그날 출근<08:00이면 인정(타임인아웃 연동)
   { id: 'p3', label: '혼자 식대 13,000 이내 (야근 저녁·이른출근 조식)', use: '야근식대', submitUse: '야근식비', dept: '', by: '유민호', eligibility: 'yasik', test: (x) => x.amount > 0 && x.amount <= 13000 && !/택시/.test(x.merchant) && isYasikMeal(x.date) },
 ];
-// 야근식비 인정 판정: 저녁=그날 야근(초과>0), 조식=그날 출근<08:00. rec=타임인아웃 그날 데이터.
-function yasikClass(item, rec) {
-  if (isDinner(item.date)) {
-    const ot = rec ? ((rec.weekend || rec.holiday) ? rec.holMin : rec.otMin) : 0;
-    if (rec && !rec.missing && ot > 0) return { ok: true, meal: '저녁', why: `야근 ${fmt(ot)}` };
-    return { ok: false, meal: '저녁', why: '그날 야근 기록 없음' };
-  }
-  if (isBreakfast(item.date)) {
-    if (rec && rec.inH != null && rec.inH < 8) return { ok: true, meal: '조식', why: `이른출근 ${rec.inText}` };
-    return { ok: false, meal: '조식', why: rec && rec.inH != null ? `출근 ${rec.inText} (08시 이후)` : '출근기록 없음' };
-  }
-  return { ok: false, meal: '기타', why: '저녁/조식 시간대 아님' };
-}
 const APPR_LINE = '법인카드 지출결의서'; // 결재선 팝업에서 명시 선택 (최근결재선 의존 제거)
 
 // ── 사용자 정의 규칙(패턴→자동화 등록) 영속 저장. 사용처 포함 매칭. ──
@@ -76,11 +62,28 @@ async function loginBizplay(ctx, { id, pw }, snapshots) {
   ]);
   await p.waitForTimeout(3000);
   if (await captcha()) { await p.close(); throw new Error('캡차가 나타났어요 — 시도를 줄이거나 브라우저에서 직접 로그인 후 다시 시도해 주세요'); }
-  if (/login/i.test(p.url())) { await p.close(); throw new Error('로그인 실패 — 아이디/비번 확인'); }
+  if (/login/i.test(p.url())) {
+    await snap(p, '로그인 실패 화면', snapshots);
+    const hint = await p.evaluate(() => {
+      const text = (document.body.innerText || '').replace(/\s+/g, ' ');
+      const m = text.match(/[^.]{0,10}(비밀번호|아이디|계정|잠금|잠겼|차단|인증|OTP|보안|틀렸|일치하지)[^.]{0,60}/);
+      return m ? m[0].trim().slice(0, 140) : '';
+    }).catch(() => '');
+    await p.close();
+    throw new Error(`로그인 실패 — 아이디/비번 확인${hint ? ` (사이트 메시지: ${hint})` : ''}`);
+  }
   await snap(p, '비즈플레이 홈 · 앱 런처', snapshots);
   ensureAuthDir();
   await ctx.storageState({ path: AUTH });
   return p;
+}
+
+// 계정 연결: 저장 전에 실제 로그인해서 아이디/비번이 맞는지 확인 (틀리면 여기서 에러 throw)
+export async function verifyBizplayLogin({ id, pw }) {
+  const browser = await getBrowser();
+  const ctx = await browser.newContext();
+  try { const p = await loginBizplay(ctx, { id, pw }, []); await p.close(); }
+  finally { await ctx.close(); }
 }
 
 // 공용: 새 컨텍스트 → 로그인/세션 → 카드영수증 앱 열기 → eusr 데이터 프레임 확보
@@ -425,36 +428,8 @@ async function closeModal(app) {
   if (app.frames().find((fr) => fr.url().includes('eapr_1001'))) { await app.mouse.click(1140, 200).catch(() => {}); await app.waitForTimeout(500); }
 }
 
-// 야근택시 datetime → 야근일: 자정 넘긴 00~03시 택시는 '전날' 야근
-function yagunDateOf(taxiDate) {
-  const [d, t] = String(taxiDate).split(' ');
-  const h = +((t || '').split(':')[0] || 12);
-  if (h <= 3) { const dt = new Date(d + 'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate() - 1); return dt.toISOString().slice(0, 10); }
-  return d;
-}
-const toMin = (t) => { const m = String(t).match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
-// 실제 펀치 기록 → 증빙 표 행
-function yagunProofRowFromRec(rec, dateStr, isHol, item) {
-  return {
-    date: dateStr, dow: rec.dow, kind: isHol ? 'hol' : 'ot',
-    inText: rec.inText, outText: rec.outText,         // outText는 익일이면 '익일 HH:MM'
-    workMin: rec.workMin, otMin: isHol ? rec.holMin : rec.otMin,
-    taxiAt: item.date, amount: item.amount, corrStatus: '',
-  };
-}
-// 정정 신청(대기)값 → 증빙 표 행 (승인 전 '미리 결의'용)
-function yagunProofRowFromCorr(corr, dateStr, rec, item) {
-  const iM = toMin(corr.reqIn); let oM = toMin(corr.reqOut); const overnight = iM != null && oM != null && oM < iM;
-  if (overnight) oM += 1440;
-  const workMin = (iM != null && oM != null) ? oM - iM : 0;
-  return {
-    date: dateStr, dow: rec ? rec.dow : '', kind: 'corr',
-    inText: corr.reqIn, outText: overnight ? `익일 ${corr.reqOut}` : corr.reqOut,
-    workMin, otMin: Math.max(0, workMin - 480), taxiAt: item.date, amount: item.amount, corrStatus: corr.status || '',
-  };
-}
 // 여러 야근/휴일 건을 한 장의 표 이미지(PNG)로 렌더 → 결의서에 이 1장만 첨부
-async function renderYagunTableImage(rows, mode, month) {
+export async function renderYagunTableImage(rows, mode, month) {
   const browser = await getBrowser();
   const pg = await browser.newPage({ viewport: { width: 900, height: 300 }, deviceScaleFactor: 2 });
   try {

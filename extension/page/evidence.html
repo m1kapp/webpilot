@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Webwing · 근태 증빙 크게 보기</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; background:#eef2f8; color:#1f2a44; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    header { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:12px; padding:14px 22px;
+      background:rgba(255,255,255,.94); border-bottom:1px solid #dce2ef; backdrop-filter:blur(8px); }
+    header img { width:28px; height:28px; border-radius:7px; }
+    h1 { margin:0; font-size:16px; }
+    .grow { flex:1; }
+    button,a { padding:8px 13px; border:1px solid #d6ddeb; border-radius:9px; background:#fff; color:#315fca;
+      font:inherit; font-size:13px; font-weight:700; text-decoration:none; cursor:pointer; }
+    main { padding:30px; text-align:center; }
+    #proof { display:block; width:min(1080px,100%); height:auto; margin:0 auto; background:#fff;
+      border:1px solid #dce2ef; border-radius:14px; box-shadow:0 24px 55px -38px rgba(31,42,68,.6); }
+    #empty { padding:80px 20px; color:#7d879b; }
+  </style>
+</head>
+<body>
+  <header><img src="../icons/svc-timeinout.png" alt=""><h1>타임인아웃 근태 증빙</h1><span class="grow"></span>
+    <a id="download" hidden>PNG 다운로드</a><button id="close">탭 닫기</button></header>
+  <main><img id="proof" alt="야근택시 타임인아웃 근태 증빙" hidden><div id="empty" hidden>표시할 증빙이 없어요.</div></main>
+  <script type="module" src="evidence.js"></script>
+</body>
+</html>

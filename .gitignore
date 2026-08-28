@@ -29,3 +29,13 @@ traces/
 # misc
 .DS_Store
 *.log
+
+# 확장: 코어 사본은 생성물(npm run ext:sync) · 스토어 zip
+extension/core/
+dist/
+
+# 위 *.png 규칙 예외 — 확장 아이콘은 소스에 포함되어야 함
+!extension/icons/*.png
+
+# 실물 점검용 브라우저 프로필(로그인 세션 포함) — 절대 커밋 금지
+.probe-profile/

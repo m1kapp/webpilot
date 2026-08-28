@@ -7,7 +7,20 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "timeinout": "node src/recipes/timeinout.mjs"
+    "timeinout": "node src/recipes/timeinout.mjs",
+    "ext:sync": "node scripts/ext-sync.mjs",
+    "ext:zip": "node scripts/ext-zip.mjs",
+    "ext:e2e": "node scripts/ext-e2e.mjs",
+    "ext:shot": "node scripts/ot-shot.mjs",
+    "ext:month": "node scripts/ext-month.mjs",
+    "ext:parity": "node scripts/summary-parity.mjs",
+    "ext:break": "node scripts/break-rule.mjs",
+    "ext:rules": "node scripts/rules.mjs",
+    "ext:probe": "node scripts/probe-month.mjs",
+    "ext:probe-bizplay": "node scripts/probe-bizplay.mjs",
+    "ext:icons": "node scripts/make-icons.mjs",
+    "ext:edu-smoke": "node scripts/edu-smoke.mjs",
+    "ext:wise-smoke": "node scripts/wise-smoke.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
