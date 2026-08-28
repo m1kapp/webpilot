@@ -1135,6 +1135,7 @@ function renderEdu(d) {
   const dday = end ? Math.ceil((new Date(`${end}T23:59:59+09:00`) - Date.now()) / 86400000) : null;
   const pending = auto.filter((c) => c.progress < 100);
   const external = cs.filter((c) => c.external);
+  const wsafety = external.find((c) => (c.progress || 0) < 100);
   $('view-result').innerHTML = `
     <div class="card edu-top" id="edu-top">
       <div class="edu-gauge" id="edu-gauge">
@@ -1144,7 +1145,11 @@ function renderEdu(d) {
       </div>
       <div id="edu-watch" hidden></div>
       <div class="edu-actions" id="edu-top-actions">
-        <button class="btn btn-primary" id="edu-run-all" ${pending.length ? '' : 'disabled'}>${pending.length ? `자동 학습 시작 · ${pending.length}과정` : '자동 진행분 모두 완료'}</button>
+        ${pending.length
+          ? `<button class="btn btn-primary" id="edu-run-all">자동 학습 시작 · ${pending.length}과정</button>`
+          : wsafety
+            ? `<button class="btn btn-primary" id="edu-run-wise">안전보건 영상 자동 진행</button>`
+            : `<button class="btn btn-primary" disabled>모두 완료</button>`}
       </div>
     </div>
     <div class="kpis" style="margin-bottom:14px">
@@ -1160,7 +1165,8 @@ function renderEdu(d) {
         이 패널을 닫으면 과정 간 전환이 멈춥니다(편 넘김은 강의창이 열려 있는 한 계속).
         <b>안전보건</b>은 한 차시 영상이 끝나면 그 차시 시험을 통과해야 다음 차시가 열립니다 — 영상은 자동, 시험은 직접이에요.</p>
     </div>`;
-  $('edu-run-all').onclick = () => eduStart(pending);
+  if ($('edu-run-all')) $('edu-run-all').onclick = () => eduStart(pending);
+  if ($('edu-run-wise')) $('edu-run-wise').onclick = () => wiseStart(wsafety);
   $('edu-change-id').onclick = () => { buildSteps(current || {}); $('run-err').hidden = true; $('run-live').hidden = true; show('run'); promptEduId(''); };
   $('view-result').querySelectorAll('[data-run]').forEach((b) => {
     b.onclick = () => { const i = Number(b.dataset.run); eduStart(auto.filter((c) => c.progress < 100 && cs.indexOf(c) >= i)); };
@@ -1359,7 +1365,7 @@ function renderWiseWatch() {
   const doneN = w.chasis.filter((c) => c.done).length;
   let state;
   if (w.error) state = w.error;
-  else if (w.examGate) state = `${w.examGate.idx}차시 영상 완료 — 시험을 응시하면 다음 차시가 열려요`;
+  else if (w.examGate) state = `${w.examGate.examIdx}차시 영상 끝 — 그 차시 시험을 통과하면 ${w.examGate.nextIdx}차시가 열려요`;
   else if (w.finished) state = `영상 ${doneN}/${w.chasis.length}차시 완료 · 시험은 직접 응시`;
   else if (w.needAuth) state = '본인인증이 필요해요 — 강의실에서 휴대폰 인증 후 다시';
   else if (moving) state = '재생 중';
@@ -1382,7 +1388,7 @@ function renderWiseWatch() {
     actions.innerHTML = live
       ? `<button class="btn btn-danger" id="ew-stop">중지</button><button class="btn btn-ghost" id="ew-show">강의실 보기</button>`
       : w.examGate
-        ? `<button class="btn btn-primary" id="ew-exam">${w.examGate.idx}차시 시험 보기</button><button class="btn btn-ghost" id="ew-refresh">시험 후 다음 차시</button>`
+        ? `<button class="btn btn-primary" id="ew-exam">${w.examGate.examIdx}차시 시험 보기</button><button class="btn btn-ghost" id="ew-refresh">시험 후 다음 차시</button>`
         : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
     $('ew-stop')?.addEventListener('click', () => { if (wiseWatch) wiseWatch.stop = true; });
     $('ew-show')?.addEventListener('click', () => w.tabId && chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
@@ -1444,8 +1450,9 @@ async function wiseStart(course) {
           await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid }).catch(() => {});
         } else {
           // 여전히 잠김 = 앞 차시 시험을 통과해야 열리는 구조. 에러가 아니라 "시험 차례"로 깔끔히 멈춘다.
-          const doneN = w.chasis.filter((c) => c.done).length;
-          w.examGate = { idx: next.idx, doneN };
+          const doneChasis = w.chasis.filter((c) => c.done);
+          const lastDone = doneChasis[doneChasis.length - 1];
+          w.examGate = { examIdx: lastDone ? lastDone.idx : '', nextIdx: next.idx, doneN: doneChasis.length };
           w.finished = true;
           break;
         }
