@@ -69,9 +69,11 @@
 
   function onEnded() {
     if (endedHandled) return;
+    const v = document.querySelector('video');
+    // ended 오탐 가드 — 실제 끝(마지막 2초 이내)일 때만 닫는다. 로드 오류로 튀는 ended 로 창이 닫히는 churn 방지.
+    if (v && v.duration && v.currentTime < v.duration - 2) return;
     endedHandled = true;
     publish({ phase: 'ended' });
-    // 플랫폼의 ended 핸들러(parent.endTimeSave)가 끝 시각을 저장할 틈을 준 뒤 창을 닫는다.
     setTimeout(closePopup, 2500);
   }
 

@@ -1387,7 +1387,8 @@ function renderWiseWatch() {
   const videoN = w.chasis.filter((c) => c.videoDone).length;
   const total = w.chasis.length || 6;
   let state;
-  if (w.error) state = w.error;
+  if (w.needLocation) state = '영상이 열리자마자 닫혀요 — 위치정보를 먼저 허용해야 해요(팝업 GPS 감시).';
+  else if (w.error) state = w.error;
   else if (w.videosDone) state = `영상 ${total}차시 전부 완료 🎉 — 이제 6개 시험을 응시하세요(마지막에 한꺼번에)`;
   else if (w.finished) state = `영상 ${videoN}/${total}차시 완료`;
   else if (w.needAuth) state = '본인인증이 필요해요 — 강의실에서 휴대폰 인증 후 다시';
@@ -1420,15 +1421,19 @@ function renderWiseWatch() {
   if (actions) {
     actions.innerHTML = live
       ? `<button class="btn btn-danger" id="ew-stop">중지</button><button class="btn btn-ghost" id="ew-show">강의실 보기</button>`
-      : w.videosDone
-        ? `<button class="btn btn-primary" id="ew-exam">시험 6개 응시하러 가기</button><button class="btn btn-ghost" id="ew-refresh">진도 새로고침</button>`
-        : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
+      : w.needLocation
+        ? `<button class="btn btn-primary" id="ew-loc">위치 허용하러 가기</button><button class="btn btn-ghost" id="ew-refresh">허용했어요 · 다시</button>`
+        : w.videosDone
+          ? `<button class="btn btn-primary" id="ew-exam">시험 6개 응시하러 가기</button><button class="btn btn-ghost" id="ew-refresh">진도 새로고침</button>`
+          : `<button class="btn btn-primary" id="ew-refresh">진도 새로고침</button>`;
     $('ew-stop')?.addEventListener('click', () => { if (wiseWatch) wiseWatch.stop = true; });
     $('ew-show')?.addEventListener('click', () => w.tabId && chrome.tabs.update(w.tabId, { active: true }).catch(() => {}));
     $('ew-refresh')?.addEventListener('click', () => { const c = w.course; wiseWatch = null; if (c) wiseStart(c); else if (current) start(current); });
     $('ew-exam')?.addEventListener('click', () => {
       if (w.cuid) chrome.tabs.create({ url: `https://kgeduone.wisehrd.com/classroom/exam.jsp?cuid=${w.cuid}`, active: true }).catch(() => {});
     });
+    $('ew-loc')?.addEventListener('click', () => primeWiseLocation(w));
+    if (w.needLocation) { const rf = $('ew-refresh'); if (rf) rf.onclick = () => { const c = w.course; wiseWatch = null; if (c) wiseStart(c); }; }
   }
   box.querySelectorAll('.ew-sp').forEach((b) => {
     b.onclick = () => {
@@ -1469,11 +1474,27 @@ function renderWiseLiveRow() {
   }
 }
 
+// wisehrd 오리진에서 위치 프롬프트를 강제로 띄운다 — 여기서 "허용"하면 그 오리진(영상 팝업 포함)에 권한이 남아
+// 이후 스크립트로 팝업을 열어도 위치 때문에 닫히지 않는다.
+async function primeWiseLocation(w) {
+  const url = w?.cuid ? `https://kgeduone.wisehrd.com/classroom/index.jsp?cuid=${w.cuid}` : 'https://kgeduone.wisehrd.com/myacademy/my_lecture.jsp?mid=my_lecture';
+  const tab = await chrome.tabs.create({ url, active: true }).catch(() => null);
+  if (!tab) return;
+  // 로드될 때까지 잠깐 기다렸다가 위치 요청을 넣어 프롬프트를 띄운다.
+  const fire = () => chrome.scripting.executeScript({
+    target: { tabId: tab.id }, world: 'MAIN',
+    func: () => { try { navigator.geolocation.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: false, timeout: 60000 }); } catch (e) {} },
+  }).catch(() => {});
+  const onUpd = (id, info) => { if (id === tab.id && info.status === 'complete') { chrome.tabs.onUpdated.removeListener(onUpd); setTimeout(fire, 600); } };
+  chrome.tabs.onUpdated.addListener(onUpd);
+  setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpd); fire(); }, 4000);
+}
+
 async function wiseStart(course) {
   if (eduWatch && !eduWatch.stop && !eduWatch.finished) await eduStop();
   const w = wiseWatch = { stop: false, finished: false, error: '', needAuth: false, note: '강의실 여는 중…',
     tabId: null, cuid: '', chasis: [], cur: null, player: null, popupOpen: false, lastMoveAt: 0, lastCur: -1, startedAt: Date.now(),
-    finalizing: null, finalizeAt: 0, finalized: {}, videosDone: false, justPlayed: null, closeStreak: 0, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
+    finalizing: null, finalizeAt: 0, finalized: {}, videosDone: false, justPlayed: null, closeStreak: 0, needLocation: false, title: course.title, speed: Number(localStorage.getItem('wiseSpeed')) || 1 };
   renderWiseWatch();
   const ticker = setInterval(() => { if (wiseWatch === w && !w.finished) renderWiseWatch(); }, 1000);
   try {
@@ -1481,6 +1502,13 @@ async function wiseStart(course) {
     if (!open?.ok) { w.error = open?.error || '강의실을 열지 못했어요'; return; }
     w.tabId = open.data.tabId; w.cuid = open.data.cuid || '';
     if (open.data.needAuth) { w.needAuth = true; w.note = '본인인증 필요'; await chrome.tabs.update(w.tabId, { active: true }).catch(() => {}); return; }
+    // 위치 권한을 선제적으로 요청 — 강의실 탭(같은 오리진)에서 프롬프트를 띄워 두면 영상 팝업이 안 닫힌다.
+    // 이미 허용돼 있으면 프롬프트 없이 지나간다. 한 번만 시도.
+    if (!localStorage.getItem('wiseLocPrimed')) {
+      chrome.scripting.executeScript({ target: { tabId: w.tabId }, world: 'MAIN',
+        func: () => { try { navigator.geolocation.getCurrentPosition(() => {}, () => {}, { timeout: 60000 }); } catch (e) {} } }).catch(() => {});
+      try { localStorage.setItem('wiseLocPrimed', '1'); } catch (e) {}
+    }
     let idle = 0;
     while (!w.stop) {
       const cr = await chrome.runtime.sendMessage({ type: 'edu-wise-curriculum', tabId: w.tabId, cuid: w.cuid }).catch(() => null);
@@ -1497,8 +1525,8 @@ async function wiseStart(course) {
         const ch = w.chasis.find((c) => c.idx === w.justPlayed);
         if (!ch || !ch.videoDone) {
           w.closeStreak = (w.closeStreak || 0) + 1;
-          if (w.closeStreak >= 3) {
-            w.error = '영상이 열리자마자 닫혀요 — 강의창의 위치정보 권한을 "허용"으로 바꾼 뒤 다시 시작하세요(팝업 GPS 감시).';
+          if (w.closeStreak >= 2) {
+            w.needLocation = true; w.finished = true;
             break;
           }
         }
