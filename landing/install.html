@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Webwing 설치</title>
+<style>
+  :root { --ink:#1e2536; --muted:#8a93a6; --line:#eaedf6; --blue:#3b6fe0; --bg:#f4f6fb; --card:#fff; --soft:#f0f2f8; --ok:#12a150; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); line-height:1.65;
+    font-family:-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:40px 20px 60px; }
+  .hero { text-align:center; margin-bottom:28px; }
+  .wing { font-size:44px; }
+  h1 { font-size:26px; margin:8px 0 4px; letter-spacing:-.5px; }
+  .sub { color:var(--muted); font-size:14px; }
+  .cta { display:block; text-align:center; background:var(--blue); color:#fff; text-decoration:none;
+    font-weight:800; font-size:16px; padding:16px; border-radius:14px; margin:22px 0 8px;
+    box-shadow:0 12px 26px -14px rgba(59,111,224,.7); }
+  .cta.store { background:#fff; color:var(--blue); border:1px solid #cdd9f5; box-shadow:none; }
+  .note { color:var(--muted); font-size:12.5px; text-align:center; margin-bottom:26px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px 22px; margin-bottom:16px;
+    box-shadow:0 8px 22px -16px rgba(60,58,140,.25); }
+  .card h2 { font-size:16px; margin:0 0 14px; }
+  ol { margin:0; padding-left:20px; }
+  ol li { margin-bottom:12px; }
+  code { background:var(--soft); padding:2px 7px; border-radius:6px; font-size:13px; }
+  .step-badge { display:inline-block; background:#eaf0fe; color:var(--blue); font-size:11px; font-weight:800;
+    border-radius:999px; padding:2px 9px; margin-bottom:10px; }
+  .svc { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .svc span { background:var(--soft); border-radius:999px; padding:4px 11px; font-size:12.5px; color:#5a6172; font-weight:600; }
+  .tip { background:#fffaf0; border:1px solid #f0e2c0; border-radius:12px; padding:13px 15px; font-size:13px; color:#8a6d2f; }
+  .foot { color:var(--muted); font-size:12px; text-align:center; margin-top:26px; }
+  b.ok { color:var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="wing">🪽</div>
+    <h1>Webwing 설치</h1>
+    <div class="sub">로그인된 근태·경비 화면을 사이드 패널에서 한눈에</div>
+  </div>
+
+  <a class="cta" href="https://github.com/m1kapp/webpilot/raw/main/dist/webwing-extension-0.1.0.zip" download>① 확장 파일(zip) 다운로드</a>
+  <div class="note">눌러도 안 받아지면 우클릭 → "다른 이름으로 링크 저장"</div>
+
+  <div class="card">
+    <span class="step-badge">설치 3단계</span>
+    <h2>크롬에 추가하기</h2>
+    <ol>
+      <li>받은 <code>webwing-extension-0.1.0.zip</code>을 <b>압축 해제</b>합니다(더블클릭).</li>
+      <li>주소창에 <code>chrome://extensions</code> 입력 → 오른쪽 위 <b>개발자 모드</b> 켜기.</li>
+      <li><b>압축해제된 확장 프로그램을 로드</b> → 방금 푼 <code>webwing-extension-0.1.0</code> 폴더 선택.</li>
+    </ol>
+    <div class="tip">폴더를 옮기거나 지우면 확장이 사라집니다. 다운로드 폴더에 그대로 두세요.</div>
+  </div>
+
+  <div class="card">
+    <h2>쓰는 법</h2>
+    <ol>
+      <li>아래 서비스에 <b>평소처럼 로그인</b>해 둡니다.
+        <div class="svc"><span>타임인아웃</span><span>비즈플레이</span><span>Flow</span></div>
+      </li>
+      <li>크롬 툴바의 <b>Webwing 아이콘</b>(퍼즐 아이콘 안에 있으면 고정) 클릭 → 오른쪽 패널이 열립니다.</li>
+      <li>보고 싶은 자동화를 누르면 조회가 시작됩니다. 아이디·비밀번호는 저장하지 않습니다.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>업데이트</h2>
+    <p style="margin:0;font-size:14px">새 버전 안내가 오면 zip을 다시 받아 같은 폴더에 덮어쓰고,
+      <code>chrome://extensions</code>에서 Webwing 카드의 <b>새로고침(↻)</b>을 누르면 됩니다.</p>
+  </div>
+
+  <a class="cta store" href="#" onclick="return false">② (심사 통과 후) 웹스토어에서 원클릭 설치 — 준비 중</a>
+  <div class="note">정식 스토어 링크가 나오면 이 버튼이 활성화됩니다. 그전까지는 위 zip 방식으로 쓰세요.</div>
+
+  <div class="foot">문의: 배포 담당자(사내 공지 참조) · 개인정보는 기기에만 저장, 외부 전송 없음</div>
+</div>
+</body>
+</html>
