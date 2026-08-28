@@ -19,7 +19,7 @@ await page.waitForSelector('#view-result:not([hidden]) .edu-row', { timeout: 120
 console.log('courses loaded');
 await page.click('[data-wise]');
 const t0 = Date.now(); let last = '';
-while (Date.now() - t0 < 90000) {
+while (Date.now() - t0 < 70000) {
   await page.waitForTimeout(3000);
   const txt = await page.$eval('#edu-watch', (b) => b.innerText.replace(/\n/g, ' | ')).catch(() => '');
   if (txt !== last) { console.log(`[${Math.round((Date.now()-t0)/1000)}s]`, txt); last = txt; }
