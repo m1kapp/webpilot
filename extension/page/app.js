@@ -1371,8 +1371,8 @@ function renderWiseWatch() {
     <div class="ew-title">안전보건교육 (별도 LMS · 팝업)</div>
     ${cur ? `<div class="ew-line">${esc(cur.idx)}차시 ${esc(cur.title)}${w.player?.info?.dur ? ` · <span class="ew-clock">${fmtClock(w.player.info.cur)} / ${fmtClock(w.player.info.dur)}</span>` : ''}</div>` : ''}
     <div class="ew-line" style="color:#b7791f">시험 6차시는 사람이 직접 응시해야 수료돼요.</div>
-    <div class="ew-speed">배속(플랫폼 제공)
-      ${[1, 1.5, 2].map((v) => `<button class="ew-sp${w.speed === v ? ' on' : ''}" data-sp="${v}">${v}x</button>`).join('')}
+    <div class="ew-speed">배속(영상에 직접 적용)
+      ${[1, 2, 4, 8].map((v) => `<button class="ew-sp${w.speed === v ? ' on' : ''}" data-sp="${v}">${v}x</button>`).join('')}
       <span class="ew-sp-now">${w.player?.info?.speed ? `현재 ${w.player.info.speed}x` : ''}</span></div>
     <div class="ew-line" style="font-size:11px">위치정보 권한을 물으면 <b>허용</b>하세요(거부 시 팝업이 닫힙니다).</div>`;
   const actions = $('edu-top-actions');
