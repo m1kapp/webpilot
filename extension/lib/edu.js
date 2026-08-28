@@ -356,11 +356,12 @@ export async function wiseOpen(course, onProgress = () => {}) {
 }
 
 // 목차 파싱 — 차시별 진도·수료·(열려 있으면) PlayContent 인자.
-export async function wiseCurriculum(tabId, cuid) {
+export async function wiseCurriculum(tabId, cuid, reload) {
   if (cuid) {
     // 팝업이 닫히면 opener 가 index.jsp 로 새로고침되는 경우가 있어 차시표가 사라진다 — 목차로 다시 맞춘다.
+    // reload=true 면 시험 통과로 잠금이 풀렸는지 보려고 강제로 다시 읽는다.
     const url = (await chrome.tabs.get(tabId).catch(() => ({}))).url || '';
-    if (!/curriculum\.jsp/.test(url)) { await goto(tabId, `${WISE}/classroom/curriculum.jsp?cuid=${cuid}`).catch(() => {}); await sleep(900); }
+    if (reload || !/curriculum\.jsp/.test(url)) { await goto(tabId, `${WISE}/classroom/curriculum.jsp?cuid=${cuid}`).catch(() => {}); await sleep(900); }
   }
   return evaluate(tabId, () => {
     const url = location.href;
