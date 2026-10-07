@@ -31,7 +31,7 @@ export async function mapPool(items, limit, fn) {
 // 엑셀 serial → UTC Date
 export const serialToDate = (s) => new Date(Math.round((s - 25569) * 86400 * 1000));
 
-export const fmt = (m) => { const s = m < 0 ? '-' : ''; m = Math.abs(m); return `${s}${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`; };
+export const fmt = (m) => { const s = m < 0 ? '-' : ''; m = Math.round(Math.abs(m)); return `${s}${Math.floor(m / 60)}시간 ${String(m % 60).padStart(2, '0')}분`; };
 
 // 소수 시각(9.5) → 'HH:MM'. 24 넘으면 '익일 HH:MM'
 export const hhmm = (dec) => { if (dec == null) return ''; let total = Math.round(dec * 60); let over = false; if (total >= 1440) { total -= 1440; over = true; } const h = Math.floor(total / 60); const mm = total % 60; return `${over ? '익일 ' : ''}${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; };

@@ -4,6 +4,7 @@
 //   3. 주 평균 근로는 정정을 포함한다(실제로 일한 시간이므로).
 //   4. 기록 누락·미체크아웃 의심일은 어느 쪽에도 안 들어간다.
 import { buildDays, summarizeDays, MONTH_LIMIT } from '../src/core/attendance.mjs';
+import { fmt } from '../src/core/util.mjs';
 
 const fails = [];
 const check = (name, ok, got) => { console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : ` — ${got}`}`); if (!ok) fails.push(name); };
@@ -91,6 +92,10 @@ if (od && od.projected && !od.missing) {
 console.log('\n── 7. 지난 달은 달 전체로 나눈다 ──');
 const past = buildDays({ 1: W(9, 18) }, '2026-03');   // 3월 31일
 check('지난 달 분모 = 달 일수', past.summary.spanDays === 31, `${past.summary.spanDays}일`);
+
+console.log('\n── 8. 시간 표기는 분을 먼저 반올림 ──');
+check('659.6분 = 11시간 00분 (10시간 60분 아님)', fmt(659.6) === '11시간 00분', fmt(659.6));
+check('음수도 반올림', fmt(-61.4) === '-1시간 01분', fmt(-61.4));
 
 console.log(fails.length ? `\n실패 ${fails.length}건: ${fails.join(', ')}` : '\n전부 통과');
 process.exit(fails.length ? 1 : 0);

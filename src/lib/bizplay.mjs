@@ -26,7 +26,7 @@ const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const RULES = [
   { id: 'p2', label: '23~03시 택시', use: '야근택시', submitUse: '야근교통비', dept: '', by: '', attach: 'yagun', test: (x) => /택시/.test(x.merchant) && isNight(x.date) },
   // 야근식비: 혼자 먹은 1인 식대(13,000 이내). 저녁=그날 야근 있으면, 조식=그날 출근<08:00이면 인정(타임인아웃 연동)
-  { id: 'p3', label: '혼자 식대 13,000 이내 (야근 저녁·이른출근 조식)', use: '야근식대', submitUse: '야근식비', dept: '', by: '유민호', eligibility: 'yasik', test: (x) => x.amount > 0 && x.amount <= 13000 && !/택시/.test(x.merchant) && isYasikMeal(x.date) },
+  { id: 'p3', label: '혼자 식대 13,000 이내 (야근 저녁·이른출근 조식)', use: '야근식대', submitUse: '야근식비', dept: '', by: '유민호', eligibility: 'yasik', test: (x) => x.amount > 0 && x.amount <= 13000 && /[가-힣]/.test(x.merchant) && !/택시/.test(x.merchant) && isYasikMeal(x.date) },
 ];
 const APPR_LINE = '법인카드 지출결의서'; // 결재선 팝업에서 명시 선택 (최근결재선 의존 제거)
 
