@@ -16,7 +16,7 @@ const BUILD = '2026-08-28a';
 const STEP = '카드영수증 앱 여는 중';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const won = (s) => parseInt(String(s).replace(/[^0-9-]/g, ''), 10) || 0;
-const fmt = (m) => `${Math.floor(m / 60)}시간 ${String(Math.round(m % 60)).padStart(2, '0')}분`;
+const fmt = (m) => { m = Math.round(m); return `${Math.floor(m / 60)}시간 ${String(m % 60).padStart(2, '0')}분`; };
 // 완료 행 컬럼: td[2]종류 td[3]일시 td[4]사용처 td[7]금액
 const toItem = (td) => ({ type: td[2], date: td[3], merchant: td[4], amount: won(td[7]),
   key: `${td[3]}|${td[4]}|${td[7]}` });
@@ -1227,7 +1227,7 @@ export async function getYasik(month, onProgress = () => {}) {
     });
     // 화면 조회기간이 대상월과 달라도 결과가 어긋나지 않게 여기서 자른다.
     const inMonth = rows.map(toItem).filter((it) => it.date.slice(0, 7) === month);
-    const meals = inMonth.filter((it) => it.amount > 0 && it.amount <= 13000 && !/택시/.test(it.merchant) && isYasikMeal(it.date));
+    const meals = inMonth.filter((it) => it.amount > 0 && it.amount <= 13000 && /[가-힣]/.test(it.merchant) && !/택시/.test(it.merchant) && isYasikMeal(it.date));
     onProgress('미결의(대기) 조회 중', {
       '식대 후보': `${meals.length}건`,
       기준: '13,000원 이하 + 저녁(17~22시) 또는 조식(05~09시) + 택시 아님',
